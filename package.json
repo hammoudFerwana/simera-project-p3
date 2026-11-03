@@ -1,0 +1,36 @@
+{
+  "name": "simera-p3",
+  "version": "1.0.0",
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "api",
+    "worker",
+    "shared"
+  ],
+  "scripts": {
+    "dev:api": "npm run dev --workspace=api",
+    "dev:worker": "npm run dev --workspace=worker",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "test": "jest"
+  },
+  "jest": {
+    "testMatch": [
+      "<rootDir>/api/test/**/*.test.js",
+      "<rootDir>/shared/test/**/*.test.js"
+    ],
+    "testEnvironment": "node"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.20.0",
+    "eslint": "^9.20.0",
+    "eslint-config-prettier": "^10.0.1",
+    "globals": "^15.14.0",
+    "jest": "^29.7.0",
+    "prettier": "^3.5.0",
+    "supertest": "^7.0.0"
+  }
+}
