@@ -90,6 +90,6 @@ Each component can be run individually using root npm scripts:
 
 ## Branch, Commit and PR Rules
 
-Branches: main, develop (default), feature/<CARD-ID>-<short-name> from develop.
-Commit message: "<type>(<CARD-ID>): <imperative summary>". Types: feat, fix, test, docs, style, refactor, chore, ci. Example: "feat(US-04): add file size validation".
-Pull requests: the title starts with the card ID. One approving review from another member. The reviewer merges into develop with "Create a merge commit". main gets the demo release only.
+- Branches: `main`, `develop` (default), and `feature/<CARD-ID>-<short-name>` created from `develop`.
+- Commit message: `<type>(<CARD-ID>): <imperative summary>`. Types: `feat`, `fix`, `test`, `docs`, `style`, `refactor`, `chore`, `ci`. Example: `feat(US-04): add file size validation`.
+- Pull requests: the title starts with the card ID. One approving review from another member. The reviewer merges into `develop` with "Create a merge commit". `main` gets the demo release only.
