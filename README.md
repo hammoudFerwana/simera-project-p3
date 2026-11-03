@@ -19,21 +19,25 @@ Candidates register, verify their email with an OTP, and upload a CV (PDF or DOC
 ## Getting Started (Fresh Clone)
 
 1. Clone the repository:
+
    ```bash
    git clone <repository-url>
    cd simera-project-p3
    ```
 
 2. Install all dependencies across all workspaces:
+
    ```bash
    npm install
    ```
 
 3. Set up the local environment configuration:
+
    ```bash
    cp .env.example .env
    ```
-   *(On Windows PowerShell: `Copy-Item .env.example .env`)*
+
+   _(On Windows PowerShell: `Copy-Item .env.example .env`)_
 
    Review `.env` and configure any necessary values:
    - `NODE_ENV`: application environment (default: `development`)
@@ -45,9 +49,11 @@ Candidates register, verify their email with an OTP, and upload a CV (PDF or DOC
 Each component can be run individually using root npm scripts:
 
 - **API Server**:
+
   ```bash
   npm run dev:api
   ```
+
   Runs the Express API on `http://localhost:3000`. Health check available at `GET /health`.
 
 - **Worker Process**:
@@ -59,15 +65,19 @@ Each component can be run individually using root npm scripts:
 ## Testing and Code Quality
 
 - **Run Tests**:
+
   ```bash
   npm test
   ```
+
   Runs the test suite across workspaces using Jest.
 
 - **Lint Code**:
+
   ```bash
   npm run lint
   ```
+
   Checks all workspaces for code style and syntax issues with ESLint.
 
 - **Format Code**:
