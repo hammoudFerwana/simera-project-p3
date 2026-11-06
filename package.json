@@ -8,7 +8,8 @@
   "workspaces": [
     "api",
     "worker",
-    "shared"
+    "shared",
+    "web"
   ],
   "scripts": {
     "dev:api": "npm run dev --workspace=api",
