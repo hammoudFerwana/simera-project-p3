@@ -45,10 +45,9 @@ CREATE TYPE provenance_item_type AS ENUM (
 );
 
 CREATE TYPE provenance_resolution_method AS ENUM (
-    'source_agreement',
-    'majority',
-    'human_review',
-    'vetted'
+    'no_conflict',
+    'latest_value',
+    'human_reviewed'
 );
 
 CREATE TYPE conflict_status AS ENUM (
@@ -503,7 +502,6 @@ CREATE TABLE conflicts (
     status conflict_status NOT NULL DEFAULT 'pending',
     resolution_method conflict_resolution_method,
     applied_rule VARCHAR(500),
-    source_count INTEGER,
     resolved_value JSONB,
     resolved_at TIMESTAMP,
 
@@ -549,6 +547,7 @@ CREATE TABLE human_reviews (
     admin_id INTEGER,
     reviewed_at TIMESTAMP,
     review_result TEXT,
+    confidence FLOAT,
     created_at TIMESTAMP NOT NULL,
 
     CONSTRAINT fk_human_reviews_candidate
