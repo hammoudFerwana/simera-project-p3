@@ -206,8 +206,12 @@ for (const skillName of skillNames) {
     await client.query('COMMIT');
     console.log('Sample candidates seeded successfully.');
   } catch (error) {
-    await client.query('ROLLBACK');
-    console.error('Sample candidates seeding failed:', error);
+    try {
+      await client.query('ROLLBACK');
+    } catch (rollbackError) {
+      console.error('Rollback failed:', rollbackError.message);
+    }
+
     throw error;
   } finally {
     client.release();
