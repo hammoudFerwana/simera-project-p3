@@ -37,14 +37,16 @@ Every test name is printed with a check mark. `npm test` runs the same tests tog
 
 The tests cover:
 
-- a complete and correct JSON passes;
+- a complete and correct JSON (one item in every section) passes;
 - `null` values and empty lists (`[]`) pass;
-- a missing field fails, and the error names its path (`candidate.first_name`, `work_experience[0].end_date`);
-- extra undefined fields are stripped at every level;
+- a non-object input fails at `(root)`;
+- a missing field fails, and the error names its path (`candidate.first_name`, `work_experience[0].end_date`, the first field of every list section);
+- extra undefined fields are stripped at every level (root, `meta`, `candidate`, wrappers, every list section);
 - dates: `YYYY` (year only), `YYYY-MM` and `YYYY-MM-DD` are accepted; other formats such as `May 2019` are rejected;
 - value wrapper rules: evidence and confidence are required for a non-null value, and confidence must be in 0..1;
-- `is_current = true` with an `end_date` fails;
-- enum fields reject values that aren't in their allowed list;
+- `work_experience.duration_months`: whole months ≥ 0 or `null`; negative, fractional and string values are rejected; it's an `integer` in the JSON Schema;
+- `is_current = true` with an `end_date` passes the contract (the validation layer checks it);
+- enum fields (language level, link type, duration unit) reject values that aren't in their allowed list;
 - the six excluded personal fields aren't in the schema and are stripped from the input.
 
 `buildValidExtraction()` in `shared/test/extraction-schema.test.js` is a complete, valid example of the contract. Use it as a reference for the full JSON shape.
@@ -93,10 +95,11 @@ npm run lint
 - **No field is omitted:** every field must be present. Missing information is `null`, an empty list is `[]`. A missing field fails validation and the error names its path (e.g. `work_experience[0].end_date`).
 - **Unknown fields are stripped** at every level and never reach storage.
 - **Dates** are strings that keep the precision written in the source: `YYYY` (year only), `YYYY-MM` or `YYYY-MM-DD`. A missing month is never filled in. Range checks (month 1 to 12, start before end, no future dates) are done by the validation layer.
-- **Ongoing items** (`work_experience`, `education`, `volunteering`): `is_current.value = true` requires `end_date.value = null`.
+- **Ongoing items** (`work_experience`, `education`, `volunteering`) are written as `is_current = true` with `end_date = null`. The contract checks types only. Consistency between `is_current` and `end_date` is a validation-layer check: a failure sends that item alone to human review instead of failing the whole file.
+- **Job duration:** `work_experience[].duration_months` is the duration of each job in whole months, calculated by the LLM from `start_date` and `end_date` (or the processing date when the job is current). Its evidence is the date range as written. The validation layer recalculates it from the dates; when the two differ, the code's result is used. It's never stored: experience is calculated when needed.
 - **Skills** are extracted with their name as written in the file. Normalization against the universal skills list happens later and is not part of this contract.
 - **Excluded personal fields:** date of birth, nationality, gender, religion, marital status and photo are not part of the schema. If they appear in the input, they are stripped.
-- **Experience** is not part of the contract. Experience months are computed by code from the job dates.
+- **Content checks belong to the validation layer**, not to this contract: date ranges, `is_current` consistency, ISO country codes, phone format, evidence found in the source text, and the duration recalculation.
 - Database-generated fields (`id`, `candidate_id`, `deduplication_key`, timestamps) are not part of the contract.
 
 ### Schema field to database column mapping
@@ -135,6 +138,7 @@ The email is not part of the contract: the worker finds emails in the extracted 
 | `start_date`       | date string | `start_date`       |
 | `end_date`         | date string | `end_date`         |
 | `is_current`       | boolean     | `is_current`       |
+| `duration_months`  | integer ≥ 0 | _not stored_       |
 | `location`         | string      | `location`         |
 | `employment_type`  | string      | `employment_type`  |
 | `work_mode`        | string      | `work_mode`        |
@@ -144,7 +148,7 @@ The email is not part of the contract: the worker finds emails in the extracted 
 | `skills_used`      | string      | `skills_used`      |
 | `company_url`      | string      | `company_url`      |
 
-`skills_used` is free text as written and is not linked to the universal skills list.
+`skills_used` is free text as written and is not linked to the universal skills list. `duration_months` is used only to verify the code's own calculation and has no column.
 
 #### education[] → `education` (item_type `education`)
 
@@ -244,6 +248,6 @@ A skill that can't be matched to the universal list is stored in `unknown_skills
 
 Core tables have no confidence or evidence columns. For each field, the wrapper's `value`, `confidence` and `evidence` are stored with its provenance:
 
-- approved value: `data_provenance` + one `data_provenance_sources` row per source (`source_value`, `confidence`, `evidence`);
-- conflict or review case: `conflict_options` (`value`, `confidence`, `evidence`);
+- approved value: `data_provenance` (how and when it was approved), plus a `data_provenance_sources` row (`source_value`, `confidence`, `evidence`) pointing to the processing job of the file the current value came from. When a newer file updates the value, the source rows are updated to point to that file;
+- difference with the stored value (automatic or sent to review): `conflict_options` (`value`, `confidence`, `evidence`), with one option for the stored value and one for each new value;
 - unknown skill: `unknown_skills` (`skill_name`, `confidence`, `evidence`).

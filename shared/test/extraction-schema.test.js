@@ -35,6 +35,7 @@ function buildValidExtraction() {
         start_date: v('2021-03', 'Mar 2021'),
         end_date: empty(),
         is_current: v(true, 'Present'),
+        duration_months: v(44, 'Mar 2021 - Present'),
         location: empty(),
         employment_type: v('Full-time'),
         work_mode: v('Remote'),
@@ -80,13 +81,69 @@ function buildValidExtraction() {
         label: v('GitHub')
       }
     ],
-    certifications: [],
-    projects: [],
-    awards: [],
-    publications: [],
-    volunteering: []
+    certifications: [
+      {
+        name: v('AWS Certified Developer'),
+        issuing_organization: v('Amazon Web Services'),
+        issue_date: v('2023-06', 'June 2023'),
+        expiration_date: empty(),
+        credential_id: empty(),
+        credential_url: empty(),
+        description: empty()
+      }
+    ],
+    projects: [
+      {
+        name: v('CV Parser'),
+        description: empty(),
+        role: v('Lead developer'),
+        project_url: empty(),
+        start_date: v('2022'),
+        end_date: empty()
+      }
+    ],
+    awards: [
+      {
+        name: v('Best Graduation Project'),
+        issuer: v('Birzeit University'),
+        award_date: v('2020'),
+        description: empty()
+      }
+    ],
+    publications: [
+      {
+        title: v('Parsing CVs at scale'),
+        publisher: empty(),
+        publication_date: v('2024-02', 'Feb 2024'),
+        url: empty(),
+        description: empty()
+      }
+    ],
+    volunteering: [
+      {
+        organization: v('Code Club'),
+        role: v('Mentor'),
+        description: empty(),
+        start_date: v('2019'),
+        end_date: empty(),
+        is_current: v(true, '2019 - present')
+      }
+    ]
   };
 }
+
+const SECTION_LISTS = [
+  'work_experience',
+  'education',
+  'skills',
+  'languages',
+  'links',
+  'certifications',
+  'projects',
+  'awards',
+  'publications',
+  'volunteering'
+];
 
 function collectPropertyNames(jsonSchema, names = new Set()) {
   if (Array.isArray(jsonSchema)) {
@@ -124,14 +181,22 @@ describe('extraction schema', () => {
       input.candidate[key] = empty();
     });
     input.meta.document_language = null;
-    input.work_experience = [];
-    input.education = [];
-    input.skills = [];
-    input.languages = [];
-    input.links = [];
+    SECTION_LISTS.forEach((section) => {
+      input[section] = [];
+    });
 
     expect(validateExtraction(input).success).toBe(true);
   });
+
+  test.each([null, undefined, 'text', 42, []])(
+    'a non-object input (%p) fails at the root',
+    (input) => {
+      const result = validateExtraction(input);
+
+      expect(result.success).toBe(false);
+      expect(result.errors.map((e) => e.path)).toContain('(root)');
+    }
+  );
 
   describe('missing fields fail and name the field', () => {
     test('missing top-level section', () => {
@@ -184,17 +249,32 @@ describe('extraction schema', () => {
   test('extra undefined fields are removed at every level', () => {
     const input = buildValidExtraction();
     input.extra_section = { anything: true };
+    input.meta.extra = 'x';
     input.candidate.middle_name = v('X');
-    input.work_experience[0].salary = v('1000');
     input.candidate.city.source = 'cv';
+    SECTION_LISTS.forEach((section) => {
+      input[section][0].unknown_field = v('X');
+    });
 
     const result = validateExtraction(input);
 
     expect(result.success).toBe(true);
-    expect(result.data).not.toHaveProperty('extra_section');
-    expect(result.data.candidate).not.toHaveProperty('middle_name');
-    expect(result.data.work_experience[0]).not.toHaveProperty('salary');
-    expect(result.data.candidate.city).not.toHaveProperty('source');
+    expect(result.data).toEqual(buildValidExtraction());
+  });
+
+  test('a missing field in any list section names its path', () => {
+    SECTION_LISTS.forEach((section) => {
+      const input = buildValidExtraction();
+      const [firstKey] = Object.keys(input[section][0]);
+      delete input[section][0][firstKey];
+
+      const result = validateExtraction(input);
+
+      expect(result.success).toBe(false);
+      expect(result.errors.map((e) => e.path)).toContain(
+        `${section}[0].${firstKey}`
+      );
+    });
   });
 
   describe('dates', () => {
@@ -280,16 +360,64 @@ describe('extraction schema', () => {
     });
   });
 
-  test('is_current true with an end_date fails', () => {
+  test('is_current true with an end_date passes the contract (content check belongs to the validation layer)', () => {
     const input = buildValidExtraction();
     input.work_experience[0].end_date = v('2024-01');
 
-    const result = validateExtraction(input);
+    expect(validateExtraction(input).success).toBe(true);
+  });
 
-    expect(result.success).toBe(false);
-    expect(result.errors.map((e) => e.path)).toContain(
-      'work_experience[0].end_date.value'
+  describe('work_experience.duration_months', () => {
+    test.each([0, 44])('accepts %s whole months', (months) => {
+      const input = buildValidExtraction();
+      input.work_experience[0].duration_months = v(
+        months,
+        'Mar 2021 - Present'
+      );
+
+      expect(validateExtraction(input).success).toBe(true);
+    });
+
+    test('accepts null when the dates do not allow a calculation', () => {
+      const input = buildValidExtraction();
+      input.work_experience[0].duration_months = empty();
+
+      expect(validateExtraction(input).success).toBe(true);
+    });
+
+    test.each([-1, 3.5, '12'])('rejects %p', (months) => {
+      const input = buildValidExtraction();
+      input.work_experience[0].duration_months = v(
+        months,
+        'Mar 2021 - Present'
+      );
+
+      const result = validateExtraction(input);
+
+      expect(result.success).toBe(false);
+      expect(result.errors.map((e) => e.path)).toContain(
+        'work_experience[0].duration_months.value'
+      );
+    });
+
+    test('is an integer in the JSON Schema', () => {
+      const jsonSchema = getExtractionJsonSchema();
+      const durationValue =
+        jsonSchema.properties.work_experience.items.properties.duration_months
+          .properties.value;
+
+      expect(JSON.stringify(durationValue)).toContain('integer');
+    });
+  });
+
+  test('skills stated_duration rejects an unknown unit', () => {
+    const input = buildValidExtraction();
+    input.skills[0].stated_duration = v(
+      { amount: 3, unit: 'weeks' },
+      '3 weeks'
     );
+
+    expect(validateExtraction(input).success).toBe(false);
   });
 
   test('enum fields reject values outside the allowed list', () => {

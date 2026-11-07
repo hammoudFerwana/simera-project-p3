@@ -14,11 +14,14 @@ const { z } = require('zod');
  * - Protected personal fields (date of birth, nationality, gender, religion,
  *   marital status, photo) are not part of the schema.
  *
- * Range and format checks (month 1-12, ISO country codes, phone format,
- * evidence found in the source text...) belong to the validation layer.
+ * Content checks belong to the validation layer, because a failed content
+ * check sends that item alone to human review instead of failing the whole
+ * file: date ranges (month 1-12, start before end), is_current consistent
+ * with a missing end_date, ISO country codes, phone format, evidence found in
+ * the source text, and the code's own calculation of duration_months.
  */
 
-const SCHEMA_VERSION = '1.0.0';
+const SCHEMA_VERSION = '1.1.0';
 
 const DATE_PATTERN = /^\d{4}(-\d{2}(-\d{2})?)?$/;
 
@@ -84,21 +87,7 @@ function field(valueSchema) {
 const text = () => field(z.string());
 const date = () => field(dateString);
 const flag = () => field(z.boolean());
-
-/**
- * Ongoing items: when is_current is true, end_date must be null.
- */
-function withOngoingRule(itemSchema) {
-  return itemSchema.superRefine((item, ctx) => {
-    if (item.is_current.value === true && item.end_date.value !== null) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['end_date', 'value'],
-        message: 'end_date must be null when is_current is true'
-      });
-    }
-  });
-}
+const wholeMonths = () => field(z.number().int().min(0));
 
 const metaSchema = z.object({
   document_language: z.string().nullable(),
@@ -117,39 +106,45 @@ const candidateSchema = z.object({
   country: text()
 });
 
-const workExperienceSchema = withOngoingRule(
-  z.object({
-    job_title: text(),
-    company_name: text(),
-    start_date: date(),
-    end_date: date(),
-    is_current: flag(),
-    location: text(),
-    employment_type: text(),
-    work_mode: text(),
-    description: text(),
-    responsibilities: text(),
-    achievements: text(),
-    skills_used: text(),
-    company_url: text()
-  })
-);
+/**
+ * Ongoing items (work_experience, education, volunteering) are written as
+ * is_current = true with end_date = null.
+ *
+ * duration_months: the job duration in whole months, calculated by the LLM
+ * from start_date and end_date (or the processing date when is_current).
+ * Its evidence is the date range as written. The code recalculates it and its
+ * own result wins; it is never stored.
+ */
+const workExperienceSchema = z.object({
+  job_title: text(),
+  company_name: text(),
+  start_date: date(),
+  end_date: date(),
+  is_current: flag(),
+  duration_months: wholeMonths(),
+  location: text(),
+  employment_type: text(),
+  work_mode: text(),
+  description: text(),
+  responsibilities: text(),
+  achievements: text(),
+  skills_used: text(),
+  company_url: text()
+});
 
-const educationSchema = withOngoingRule(
-  z.object({
-    institution_name: text(),
-    degree_level: text(),
-    degree_name: text(),
-    field_of_study: text(),
-    start_date: date(),
-    end_date: date(),
-    is_current: flag(),
-    gpa: text(),
-    honors: text(),
-    location: text(),
-    description: text()
-  })
-);
+const educationSchema = z.object({
+  institution_name: text(),
+  degree_level: text(),
+  degree_name: text(),
+  field_of_study: text(),
+  start_date: date(),
+  end_date: date(),
+  is_current: flag(),
+  gpa: text(),
+  honors: text(),
+  location: text(),
+  description: text()
+});
 
 const statedDurationSchema = z.object({
   amount: z.number().positive(),
@@ -207,16 +202,14 @@ const publicationSchema = z.object({
   description: text()
 });
 
-const volunteeringSchema = withOngoingRule(
-  z.object({
-    organization: text(),
-    role: text(),
-    description: text(),
-    start_date: date(),
-    end_date: date(),
-    is_current: flag()
-  })
-);
+const volunteeringSchema = z.object({
+  organization: text(),
+  role: text(),
+  description: text(),
+  start_date: date(),
+  end_date: date(),
+  is_current: flag()
+});
 
 const extractionSchema = z.object({
   meta: metaSchema,
@@ -234,6 +227,10 @@ const extractionSchema = z.object({
 });
 
 function formatPath(path) {
+  if (path.length === 0) {
+    return '(root)';
+  }
+
   return path
     .map((segment) =>
       typeof segment === 'number' ? `[${segment}]` : `.${segment}`
