@@ -3,6 +3,12 @@
   "version": "1.0.0",
   "private": true,
   "main": "src/config.js",
+  "scripts": {
+    "schema": "node src/run-schema.js",
+    "seed": "node src/seed.js",
+    "seed:skills": "node src/seed-skills.js",
+    "seed:candidates": "node src/seed-sample-candidates.js"
+  },
   "dependencies": {
     "bcrypt": "^6.0.0",
     "dotenv": "^16.4.7",
