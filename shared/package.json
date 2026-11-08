@@ -4,6 +4,7 @@
   "private": true,
   "main": "src/config.js",
   "scripts": {
+    "schema": "node src/run-schema.js",
     "seed": "node src/seed.js",
     "seed:skills": "node src/seed-skills.js",
     "seed:candidates": "node src/seed-sample-candidates.js"
@@ -11,6 +12,7 @@
   "dependencies": {
     "bcrypt": "^6.0.0",
     "dotenv": "^16.4.7",
-    "pg": "^8.23.1"
+    "pg": "^8.23.1",
+    "zod": "^4.6.7"
   }
 }

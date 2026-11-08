@@ -14,7 +14,7 @@ Candidates register, verify their email with an OTP, and upload a CV (PDF or DOC
 
 - **Node.js**: version 22 LTS or later (`>=22.0.0`)
 - **npm**: version 10 or later
-- **PostgreSQL**: installed and running (required for later database cards)
+- **PostgreSQL**: installed and running
 
 ## Getting Started (Fresh Clone)
 
@@ -43,6 +43,68 @@ Candidates register, verify their email with an OTP, and upload a CV (PDF or DOC
    - `NODE_ENV`: application environment (default: `development`)
    - `API_PORT`: port for the Express API server (default: `3000`)
    - `DATABASE_URL`: PostgreSQL connection string
+   - `TEST_DATABASE_URL`: PostgreSQL connection string for the test database (`simera_test`).
+   - `ADMIN_EMAIL`: email address for the initial admin account.
+   - `ADMIN_PASSWORD`: password for the initial admin account (at least 12 characters).
+
+## Database Setup
+
+Make sure PostgreSQL is installed and running before proceeding.
+
+### 1. Create the Database
+
+Create a local PostgreSQL database named `simera`.
+
+You can create it using pgAdmin or the PostgreSQL command line:
+
+```bash
+createdb simera
+createdb simera_test
+```
+
+### 2. Configure Environment Variables
+
+Make sure your `.env` file contains the following variables:
+
+- `DATABASE_URL`: PostgreSQL connection string.
+- `ADMIN_EMAIL`: initial admin email address.
+- `ADMIN_PASSWORD`: initial admin password (at least 12 characters).
+- `TEST_DATABASE_URL`: PostgreSQL connection string for the test database (`simera_test`).
+
+Use your own local database credentials. Never commit the `.env` file.
+
+### 3. Initialize the Database
+
+Run the unified setup command:
+
+```bash
+npm run db:setup
+```
+
+This command runs the following steps in order:
+
+1. Applies the database schema, creating tables, types, and constraints.
+2. Creates the initial admin account using `ADMIN_EMAIL` and `ADMIN_PASSWORD`.
+
+**Important:** Run this command only when initializing a new, empty database. Do not run it again on an already initialized database.
+
+### 4. Optional Seed Scripts
+
+The following scripts can be run separately when needed:
+
+Insert the predefined skills list (US-13):
+
+```bash
+npm run seed:skills --workspace=shared
+```
+
+Insert sample candidate data for local development and database relationship testing:
+
+```bash
+npm run seed:candidates --workspace=shared
+```
+
+**Note:** The sample candidate seed requires the predefined skills to exist in the database. Run the skills seed before the sample candidate seed.
 
 ## Running the Applications
 
@@ -125,6 +187,24 @@ npx jest api/test/register.test.js --verbose
   ```
 
   Runs the test suite across workspaces using Jest.
+
+  To run a single test file and print every test name:
+
+  ```bash
+  npx jest <path-to-test-file> --verbose
+  ```
+
+  For the extraction data contract (schema, tests and field-to-column mapping), see [shared/README.md](shared/README.md).
+
+- **Run Tests Sequentially**:
+
+  ```bash
+  npm test -- --runInBand
+  ```
+
+  Runs all tests sequentially, which is useful for database integration tests.
+
+  **Note:** Database integration tests use the `TEST_DATABASE_URL` environment variable and require an initialized `simera_test` database. Make sure this variable points to the test database, not the development database.
 
 - **Lint Code**:
 

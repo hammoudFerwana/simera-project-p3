@@ -14,6 +14,7 @@
   "scripts": {
     "dev:api": "npm run dev --workspace=api",
     "dev:worker": "npm run dev --workspace=worker",
+    "db:setup": "npm run schema --workspace=shared && npm run seed --workspace=shared",
     "lint": "eslint .",
     "format": "prettier --write .",
     "test": "jest"
