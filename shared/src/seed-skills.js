@@ -186,7 +186,12 @@ async function seedSkills() {
     console.log(`New skills inserted: ${insertedCount}`);
     console.log(`Existing skills skipped: ${skills.length - insertedCount}`);
   } catch (error) {
-    await client.query('ROLLBACK');
+    try {
+      await client.query('ROLLBACK');
+    } catch (rollbackError) {
+      console.error('Rollback failed:', rollbackError.message);
+    }
+
     throw error;
   } finally {
     client.release();

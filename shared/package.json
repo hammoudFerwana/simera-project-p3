@@ -4,6 +4,7 @@
   "private": true,
   "main": "src/config.js",
   "scripts": {
+    "schema": "node src/run-schema.js",
     "seed": "node src/seed.js",
     "seed:skills": "node src/seed-skills.js",
     "seed:candidates": "node src/seed-sample-candidates.js"

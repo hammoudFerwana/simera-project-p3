@@ -1,10 +1,12 @@
-
 const bcrypt = require('bcrypt');
 const pool = require('./database');
 
-async function seedAdmin() {
-  const email = process.env.ADMIN_EMAIL?.trim().toLowerCase();
-  const password = process.env.ADMIN_PASSWORD;
+async function seedAdmin({
+  dbPool = pool,
+  env = process.env
+} = {}) {
+  const email = env.ADMIN_EMAIL?.trim().toLowerCase();
+  const password = env.ADMIN_PASSWORD;
 
   if (!email || !password) {
     throw new Error('ADMIN_EMAIL and ADMIN_PASSWORD must be set in .env');
@@ -14,7 +16,7 @@ async function seedAdmin() {
     throw new Error('Admin password must be at least 12 characters');
   }
 
-  const client = await pool.connect();
+  const client = await dbPool.connect();
 
   try {
     await client.query('BEGIN');
@@ -73,11 +75,15 @@ async function seedAdmin() {
   }
 }
 
-seedAdmin()
-  .catch((error) => {
-    console.error('Admin seeding failed:', error.message);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await pool.end();
-  });
+if (require.main === module) {
+  seedAdmin()
+    .catch((error) => {
+      console.error('Admin seeding failed:', error.message);
+      process.exitCode = 1;
+    })
+    .finally(async () => {
+      await pool.end();
+    });
+}
+
+module.exports = { seedAdmin };
