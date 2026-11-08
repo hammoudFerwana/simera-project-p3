@@ -134,6 +134,14 @@ Each component can be run individually using root npm scripts:
 
   Runs the test suite across workspaces using Jest.
 
+  To run a single test file and print every test name:
+
+  ```bash
+  npx jest <path-to-test-file> --verbose
+  ```
+
+  For the extraction data contract (schema, tests and field-to-column mapping), see [shared/README.md](shared/README.md).
+
 - **Run Tests Sequentially**:
 
   ```bash
