@@ -62,6 +62,60 @@ Each component can be run individually using root npm scripts:
   ```
   Starts the background worker process.
 
+## API Endpoints
+
+The API endpoints need a PostgreSQL database with `shared/sql/schema.sql` loaded, and `DATABASE_URL` in `.env` pointing to it. `GET /health` works without a database.
+
+### `POST /api/auth/register` (US-01)
+
+Registers a candidate with an email and a password.
+
+- The email is trimmed and lowercased before it's checked and saved, so `Jane@Example.com` and `jane@example.com` are the same account.
+- The password must be at least 8 characters. Only a bcrypt hash (cost 12) is stored.
+- One transaction creates the `users` row (`email_verified = false`, `otp_attempts = 0`) and the linked `candidate_profiles` row. If either insert fails, nothing is saved. No `admins` row is created: admins are inserted by the team directly.
+- After the account is saved, the OTP service is called to send the verification code. It's a placeholder (`api/src/auth/send-otp.js`) until US-02 provides the real service. If sending fails, the account stays, and the candidate can request a new code.
+
+Request:
+
+```json
+{ "email": "jane.doe@example.com", "password": "secret-pass-1" }
+```
+
+Responses:
+
+| Status | When                     | Body                                                                                                             |
+| ------ | ------------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| `201`  | Account created          | `{ "message": "Account created. Enter the verification code sent to your email.", "email": "..." }`              |
+| `400`  | Invalid input            | `{ "errors": { "email": "Enter a valid email address", "password": "Password must be at least 8 characters" } }` |
+| `400`  | Malformed JSON body      | `{ "errors": { "body": "Invalid JSON body" } }`                                                                  |
+| `409`  | Email already registered | `{ "errors": { "email": "This email is already in use" } }`                                                      |
+| `500`  | Unexpected error         | `{ "errors": { "server": "Something went wrong" } }`                                                             |
+
+`errors` is keyed by field name, so each message can be shown next to its field.
+
+Try it with the API running (`npm run dev:api`):
+
+```bash
+curl -i -X POST http://localhost:3000/api/auth/register \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"jane.doe@example.com","password":"secret-pass-1"}'
+```
+
+Then check the database:
+
+```sql
+SELECT u.id, u.email, u.email_verified, u.otp_attempts, cp.id AS profile_id
+FROM users u
+JOIN candidate_profiles cp ON cp.user_id = u.id
+WHERE u.email = 'jane.doe@example.com';
+```
+
+Run the registration tests only (no database needed, it's replaced by an in-memory fake):
+
+```bash
+npx jest api/test/register.test.js --verbose
+```
+
 ## Testing and Code Quality
 
 - **Run Tests**:
