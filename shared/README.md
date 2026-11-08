@@ -43,7 +43,7 @@ The tests cover:
 - a missing field fails, and the error names its path (`candidate.first_name`, `work_experience[0].end_date`, the first field of every list section);
 - extra undefined fields are stripped at every level (root, `meta`, `candidate`, wrappers, every list section);
 - dates: `YYYY` (year only), `YYYY-MM` and `YYYY-MM-DD` are accepted; other formats such as `May 2019` are rejected;
-- value wrapper rules: evidence and confidence are required for a non-null value, and confidence must be in 0..1;
+- value wrapper rules: evidence and confidence are required for a non-null value, both must be null for a null value, and confidence must be in 0..1;
 - `work_experience.duration_months`: whole months ≥ 0 or `null`; negative, fractional and string values are rejected; it's an `integer` in the JSON Schema;
 - `is_current = true` with an `end_date` passes the contract (the validation layer checks it);
 - enum fields (language level, link type, duration unit) reject values that aren't in their allowed list;
@@ -115,17 +115,17 @@ Every field below (except `meta`) is a value wrapper. The table lists the type o
 
 #### candidate → `candidate_profiles` (provenance item_type `candidate_profile`)
 
-| Schema field           | Type   | Column                            | Notes                                                |
-| ---------------------- | ------ | --------------------------------- | ---------------------------------------------------- |
-| `candidate.first_name` | string | `candidate_profiles.first_name`   |                                                      |
-| `candidate.last_name`  | string | `candidate_profiles.last_name`    |                                                      |
-| `candidate.headline`   | string | `candidate_profiles.headline`     |                                                      |
-| `candidate.summary`    | string | `candidate_profiles.summary`      |                                                      |
-| `candidate.phone`      | string | `candidate_profiles.phone`        | Normalized to international format by code.          |
-| `candidate.industry`   | string | `candidate_profiles.industry`     |                                                      |
-| `candidate.profession` | string | `candidate_profiles.profession`   |                                                      |
-| `candidate.city`       | string | `candidate_profiles.city`         |                                                      |
-| `candidate.country`    | string | `candidate_profiles.country_code` | As written; converted to ISO 3166-1 alpha-2 by code. |
+| Schema field             | Type   | Column                            | Notes                                                |
+| ------------------------ | ------ | --------------------------------- | ---------------------------------------------------- |
+| `candidate.first_name`   | string | `candidate_profiles.first_name`   |                                                      |
+| `candidate.last_name`    | string | `candidate_profiles.last_name`    |                                                      |
+| `candidate.headline`     | string | `candidate_profiles.headline`     |                                                      |
+| `candidate.summary`      | string | `candidate_profiles.summary`      |                                                      |
+| `candidate.phone`        | string | `candidate_profiles.phone`        | Normalized to international format by code.          |
+| `candidate.industry`     | string | `candidate_profiles.industry`     |                                                      |
+| `candidate.profession`   | string | `candidate_profiles.profession`   |                                                      |
+| `candidate.city`         | string | `candidate_profiles.city`         |                                                      |
+| `candidate.country_code` | string | `candidate_profiles.country_code` | As written; converted to ISO 3166-1 alpha-2 by code. |
 
 The email is not part of the contract: the worker finds emails in the extracted text with code and matches them against the login email (`users.email`).
 

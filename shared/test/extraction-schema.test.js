@@ -26,7 +26,7 @@ function buildValidExtraction() {
       industry: empty(),
       profession: v('Software Engineer'),
       city: v('Ramallah'),
-      country: v('Palestine')
+      country_code: v('Palestine')
     },
     work_experience: [
       {
@@ -350,6 +350,23 @@ describe('extraction schema', () => {
       };
 
       expect(validateExtraction(input).success).toBe(false);
+    });
+
+    test('a null value with a confidence fails', () => {
+      const input = buildValidExtraction();
+      input.candidate.summary = {
+        value: null,
+        confidence: 0.8,
+        evidence: null
+      };
+
+      const result = validateExtraction(input);
+
+      expect(result.success).toBe(false);
+      expect(result.errors).toContainEqual({
+        path: 'candidate.summary.confidence',
+        message: 'Confidence must be null when value is null'
+      });
     });
 
     test.each([-0.1, 1.1])('confidence %s outside 0..1 fails', (confidence) => {

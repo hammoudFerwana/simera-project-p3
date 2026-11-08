@@ -44,8 +44,8 @@ const dateString = z
 
 /**
  * Value wrapper for a single extracted field.
- * A null value carries null evidence; a non-null value requires a confidence
- * between 0 and 1 and a non-empty evidence snippet.
+ * A null value carries null confidence and null evidence; a non-null value
+ * requires a confidence between 0 and 1 and a non-empty evidence snippet.
  */
 function field(valueSchema) {
   return z
@@ -56,6 +56,14 @@ function field(valueSchema) {
     })
     .superRefine((wrapper, ctx) => {
       if (wrapper.value === null) {
+        if (wrapper.confidence !== null) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['confidence'],
+            message: 'Confidence must be null when value is null'
+          });
+        }
+
         if (wrapper.evidence !== null) {
           ctx.addIssue({
             code: 'custom',
@@ -103,7 +111,7 @@ const candidateSchema = z.object({
   industry: text(),
   profession: text(),
   city: text(),
-  country: text()
+  country_code: text()
 });
 
 /**
