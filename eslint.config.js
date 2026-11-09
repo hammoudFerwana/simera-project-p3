@@ -5,7 +5,6 @@ const prettier = require('eslint-config-prettier');
 const reactHooks = require('eslint-plugin-react-hooks');
 const react = require('eslint-plugin-react');
 
-
 module.exports = [
   js.configs.recommended,
   {
@@ -22,33 +21,33 @@ module.exports = [
     }
   },
 
-{
-  files: ['web/**/*.{js,jsx}'],
+  {
+    files: ['web/**/*.{js,jsx}'],
 
-  languageOptions: {
-    ecmaVersion: 2022,
-    sourceType: 'module',
-    globals: {
-      ...globals.browser,
-      ...globals.node
-    },
-    parserOptions: {
-      ecmaFeatures: {
-        jsx: true
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'module',
+      globals: {
+        ...globals.browser,
+        ...globals.node
+      },
+      parserOptions: {
+        ecmaFeatures: {
+          jsx: true
+        }
       }
+    },
+
+    plugins: {
+      react,
+      'react-hooks': reactHooks
+    },
+
+    rules: {
+      ...reactHooks.configs.flat.recommended.rules,
+      'react/jsx-uses-vars': 'error'
     }
   },
-
-  plugins: {
-    react,
-    'react-hooks': reactHooks
-  },
-
-  rules: {
-    ...reactHooks.configs.flat.recommended.rules,
-    'react/jsx-uses-vars': 'error'
-  }
-},
 
   {
     ignores: [
@@ -58,8 +57,6 @@ module.exports = [
       '**/coverage/**'
     ]
   },
-
-
 
   prettier
 ];

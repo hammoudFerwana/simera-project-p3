@@ -1,10 +1,7 @@
 const bcrypt = require('bcrypt');
 const pool = require('./database');
 
-async function seedAdmin({
-  dbPool = pool,
-  env = process.env
-} = {}) {
+async function seedAdmin({ dbPool = pool, env = process.env } = {}) {
   const email = env.ADMIN_EMAIL?.trim().toLowerCase();
   const password = env.ADMIN_PASSWORD;
 
@@ -58,10 +55,7 @@ async function seedAdmin({
 
       const userId = newUser.rows[0].id;
 
-      await client.query(
-        'INSERT INTO admins (user_id) VALUES ($1)',
-        [userId]
-      );
+      await client.query('INSERT INTO admins (user_id) VALUES ($1)', [userId]);
 
       console.log('Admin account created successfully.');
     }
