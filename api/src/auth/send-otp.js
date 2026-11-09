@@ -7,6 +7,7 @@
  *
  * @param {{ id: number, email: string }} _user
  */
+// TODO(US-02): replace with the real OTP service.
 async function sendOtp(_user) {}
 
 module.exports = { sendOtp };

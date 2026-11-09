@@ -29,7 +29,9 @@ function createApp({ getDb = defaultGetDb, sendOtp = defaultSendOtp } = {}) {
       return res.status(400).json({ errors: { body: 'Invalid JSON body' } });
     }
 
-    console.error(error.message);
+    // The stack includes the message. Not the whole object: pg errors carry a
+    // `detail` field that can contain row values such as the email.
+    console.error(error.stack || error);
     return res.status(500).json({ errors: { server: 'Something went wrong' } });
   });
 

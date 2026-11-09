@@ -41,6 +41,9 @@ async function registerCandidate(
 
   const client = await db.connect();
   let user;
+  // Set when ROLLBACK fails: the connection is in an unknown state, so it is
+  // destroyed instead of going back to the pool.
+  let brokenConnectionError;
 
   try {
     await client.query('BEGIN');
@@ -67,7 +70,12 @@ async function registerCandidate(
 
     await client.query('COMMIT');
   } catch (error) {
-    await client.query('ROLLBACK').catch(() => {});
+    try {
+      await client.query('ROLLBACK');
+    } catch (rollbackError) {
+      brokenConnectionError = rollbackError;
+      logger.error('Registration rollback failed', rollbackError.stack);
+    }
 
     // Another request registered the same email between the check and the insert.
     if (error.code === UNIQUE_VIOLATION && error.table === 'users') {
@@ -75,14 +83,16 @@ async function registerCandidate(
     }
     throw error;
   } finally {
-    client.release();
+    client.release(brokenConnectionError);
   }
 
   try {
     await sendOtp(user);
   } catch (error) {
     // The account exists; the candidate can request a new code (US-02).
-    logger.error(`OTP sending failed for user ${user.id}: ${error.message}`);
+    // The stack, not the whole object: mailer errors can carry the recipient
+    // address in their fields, and logs must not contain the email.
+    logger.error(`OTP sending failed for user ${user.id}`, error.stack);
   }
 
   return user;
