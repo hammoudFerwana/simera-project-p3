@@ -22,7 +22,10 @@
   "jest": {
     "testMatch": [
       "<rootDir>/api/test/**/*.test.js",
-      "<rootDir>/shared/test/**/*.test.js"
+      "<rootDir>/shared/test/**/*.test.js",
+      "<rootDir>/api/test/**/*.test.js",
+     "<rootDir>/worker/test/**/*.test.js"
+
     ],
     "testEnvironment": "node"
   },
