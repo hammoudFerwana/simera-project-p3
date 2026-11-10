@@ -15,10 +15,11 @@ export default function useRegister() {
       return await axiosInstance.post("/auth/register", registerData);
     },
 
-    onSuccess: () => {
-      navigate("/auth/verify-otp");
-    },
-
+   onSuccess: (_, variables) => {
+  navigate("/auth/verify-otp", {
+    state: { email: variables.email },
+  });
+},
     onError: (err) => {
       setServerErrors(err.response?.data?.errors || []);
     },
