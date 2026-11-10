@@ -46,6 +46,7 @@ Candidates register, verify their email with an OTP, and upload a CV (PDF or DOC
    - `TEST_DATABASE_URL`: PostgreSQL connection string for the test database (`simera_test`).
    - `ADMIN_EMAIL`: email address for the initial admin account.
    - `ADMIN_PASSWORD`: password for the initial admin account (at least 12 characters).
+   - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM`: the SMTP server that sends verification codes. See [Email (SMTP) Setup](#email-smtp-setup).
 
 ## Database Setup
 
@@ -106,6 +107,32 @@ npm run seed:candidates --workspace=shared
 
 **Note:** The sample candidate seed requires the predefined skills to exist in the database. Run the skills seed before the sample candidate seed.
 
+## Email (SMTP) Setup
+
+The API emails verification codes (OTP) to the address the candidate registered with, through Nodemailer over SMTP. It needs `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` and `MAIL_FROM` in `.env`, and refuses to start if any of them is missing.
+
+**Gmail or Google Workspace (company email).** Google doesn't accept the normal account password over SMTP; it needs an App Password.
+
+1. Turn on **2-Step Verification** for the sending account.
+2. Create an App Password at [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords) (16 characters). On Google Workspace, the admin must allow App Passwords.
+3. Set in `.env`:
+
+   ```dotenv
+   SMTP_HOST=smtp.gmail.com
+   SMTP_PORT=465
+   SMTP_USER=<sending address>
+   SMTP_PASS=<the App Password, without spaces>
+   MAIL_FROM=TalentVault <same sending address>
+   ```
+
+`MAIL_FROM` must use the same address as `SMTP_USER`. Gmail allows about 500 emails a day for a personal account (more on Workspace).
+
+**Another provider:** use its SMTP host, port and credentials. Port `465` uses TLS from the start; other ports (such as `587`) upgrade with STARTTLS.
+
+**Security:** the App Password can send email as that account. Keep it only in your `.env`, never commit it, and share it with teammates privately if they need to send codes. A dedicated project account is safer than a personal one.
+
+**Testing by hand:** register with an inbox you can read. With Gmail, every `yourname+anything@gmail.com` address is a different account for the API but lands in the `yourname@gmail.com` inbox, so one inbox is enough for many test accounts. Avoid made-up addresses: you can't read their code, and repeated bounces can get the sending account blocked.
+
 ## Running the Applications
 
 Each component can be run individually using root npm scripts:
@@ -135,7 +162,7 @@ Registers a candidate with an email and a password.
 - The email is trimmed and lowercased before it's checked and saved, so `Jane@Example.com` and `jane@example.com` are the same account.
 - The password must be at least 8 characters. Only a bcrypt hash (cost 12) is stored.
 - One transaction creates the `users` row (`email_verified = false`, `otp_attempts = 0`) and the linked `candidate_profiles` row. If either insert fails, nothing is saved. No `admins` row is created: admins are inserted by the team directly.
-- After the account is saved, the OTP service is called to send the verification code. It's a placeholder (`api/src/auth/send-otp.js`) until US-02 provides the real service. If sending fails, the account stays, and the candidate can request a new code.
+- After the account is saved, a verification code is generated and emailed (see `POST /api/auth/verify-otp`). If sending fails, the account stays, and the candidate can request a new code with `POST /api/auth/resend-otp`.
 
 Request:
 
@@ -172,10 +199,77 @@ JOIN candidate_profiles cp ON cp.user_id = u.id
 WHERE u.email = 'jane.doe@example.com';
 ```
 
-Run the registration tests only (no database needed, it's replaced by an in-memory fake):
+### Email verification with OTP (US-02)
+
+After registering, the candidate receives a 6-digit code by email and must enter it before logging in.
+
+- The code is valid for **10 minutes** and can be used **once**. Only its bcrypt hash is stored (`users.otp_hash`, `users.otp_expires_at`); the code itself is never stored or logged.
+- Each wrong code increments `users.otp_attempts`. The 5th wrong code invalidates the code, so even the correct code is refused afterwards, and a new code must be requested.
+- An expired code is not counted as a wrong attempt.
+- Requesting a new code replaces the old one (it stops working) and resets `otp_attempts` to 0.
+- The candidate isn't logged in yet, so both endpoints take the email in the body. It's trimmed and lowercased, like at registration.
+
+Expected outcomes return `{ "errors": { <field>: message }, "reason": <code> }`. `reason` is a stable value the frontend can branch on, for example to show a "Resend code" button for `expired` and `too_many_attempts`.
+
+#### `POST /api/auth/verify-otp`
+
+Request:
+
+```json
+{ "email": "jane.doe@example.com", "code": "042137" }
+```
+
+| Status | `reason`            | When                                         | Message (`errors.<field>`)                             |
+| ------ | ------------------- | -------------------------------------------- | ------------------------------------------------------ |
+| `200`  |                     | Correct code: `email_verified = true`        | `{ "message": "Email verified. You can now log in." }` |
+| `400`  |                     | Invalid email, or the code isn't 6 digits    | `email` / `code`: field message                        |
+| `400`  | `incorrect`         | Wrong code (also returns `attemptsLeft`)     | `code`: "The code is incorrect"                        |
+| `400`  | `too_many_attempts` | 5 wrong codes; the code is invalidated       | `code`: "Too many wrong attempts. Request a new code"  |
+| `400`  | `expired`           | More than 10 minutes since the code was sent | `code`: "The code has expired"                         |
+| `400`  | `no_active_code`    | No code to check (e.g. already cleared)      | `code`: "There is no active code. Request a new code"  |
+| `404`  | `not_found`         | No account uses this email                   | `email`: "No account uses this email"                  |
+| `409`  | `already_verified`  | The email is already verified                | `email`: "This email is already verified"              |
+
+#### `POST /api/auth/resend-otp`
+
+Request:
+
+```json
+{ "email": "jane.doe@example.com" }
+```
+
+| Status | `reason`           | When                               | Message (`errors.<field>`)                                         |
+| ------ | ------------------ | ---------------------------------- | ------------------------------------------------------------------ |
+| `200`  |                    | A new code was sent                | `{ "message": "A new verification code was sent to your email." }` |
+| `400`  |                    | Invalid email                      | `email`: field message                                             |
+| `404`  | `not_found`        | No account uses this email         | `email`: "No account uses this email"                              |
+| `409`  | `already_verified` | The email is already verified      | `email`: "This email is already verified"                          |
+| `503`  | `send_failed`      | The email server failed; try again | `email`: "Could not send the code. Try again"                      |
+
+Try it with the API running and SMTP configured (the code arrives in the registered inbox):
 
 ```bash
-npx jest api/test/register.test.js --verbose
+curl -i -X POST http://localhost:3000/api/auth/verify-otp \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"jane.doe@example.com","code":"042137"}'
+
+curl -i -X POST http://localhost:3000/api/auth/resend-otp \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"jane.doe@example.com"}'
+```
+
+Then check the database:
+
+```sql
+SELECT email, email_verified, otp_hash IS NOT NULL AS has_code, otp_expires_at, otp_attempts
+FROM users
+WHERE email = 'jane.doe@example.com';
+```
+
+Run the OTP tests only. They run against the real `simera_test` database (`TEST_DATABASE_URL`, schema loaded) with a fake mailer, so no email is sent:
+
+```bash
+npx jest api/test/otp.test.js --verbose
 ```
 
 ## Testing and Code Quality
