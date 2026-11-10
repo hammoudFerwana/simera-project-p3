@@ -87,39 +87,86 @@ function generateOtpCode() {
 }
 
 /**
+ * Runs `work(client)` inside BEGIN/COMMIT on one pooled connection.
+ * Any error rolls back. If ROLLBACK itself fails, the connection is in an
+ * unknown state, so it is destroyed instead of going back to the pool.
+ */
+async function withTransaction(db, logger, work) {
+  const client = await db.connect();
+  let brokenConnectionError;
+
+  try {
+    await client.query('BEGIN');
+    const result = await work(client);
+    await client.query('COMMIT');
+    return result;
+  } catch (error) {
+    try {
+      await client.query('ROLLBACK');
+    } catch (rollbackError) {
+      brokenConnectionError = rollbackError;
+      logger.error('OTP transaction rollback failed', rollbackError.stack);
+    }
+    throw error;
+  } finally {
+    client.release(brokenConnectionError);
+  }
+}
+
+/**
  * Creates a new code for an unverified user and emails it.
  *
  * Storing the new hash replaces any previous code and resets otp_attempts, so
  * the old code stops working. The expiry is computed by the database clock,
  * like every other timestamp. The plain code is never stored or logged.
  *
+ * The email is sent inside the transaction, before COMMIT:
+ * - If sending fails, the new code is rolled back, so the user is never left
+ *   with an active code they didn't receive (after a failed resend, the
+ *   previous code, which they did receive, still works).
+ * - The user row stays locked (FOR UPDATE) until the email is sent, so
+ *   parallel resends run one after another and the last email sent always
+ *   holds the code that is stored.
+ *
  * @param {object} deps
- * @param {{ query: Function }} deps.db pg Pool
+ * @param {{ connect: Function }} deps.db pg Pool
  * @param {{ sendOtpEmail: Function }} deps.mailer
+ * @param {{ error: Function }} [deps.logger]
  * @param {{ id: number, email: string }} user
  * @throws {OtpError} already_verified when the user is verified meanwhile
+ * @throws {MailDeliveryError} when the email can't be sent (nothing saved)
  */
-async function issueOtp({ db, mailer }, user) {
+async function issueOtp({ db, mailer, logger = console }, user) {
   const code = generateOtpCode();
   const otpHash = await bcrypt.hash(code, OTP_BCRYPT_ROUNDS);
 
-  const result = await db.query(
-    `UPDATE users
-    SET otp_hash = $1,
-      otp_expires_at = CURRENT_TIMESTAMP + make_interval(mins => $2),
-      otp_attempts = 0,
-      updated_at = CURRENT_TIMESTAMP
-    WHERE id = $3 AND email_verified = FALSE`,
-    [otpHash, OTP_TTL_MINUTES, user.id]
-  );
-  if (result.rowCount === 0) {
-    throw errors.alreadyVerified();
-  }
+  await withTransaction(db, logger, async (client) => {
+    const locked = await client.query(
+      `SELECT id
+      FROM users
+      WHERE id = $1 AND email_verified = FALSE
+      FOR UPDATE`,
+      [user.id]
+    );
+    if (locked.rowCount === 0) {
+      throw errors.alreadyVerified();
+    }
 
-  await mailer.sendOtpEmail({
-    to: user.email,
-    code,
-    ttlMinutes: OTP_TTL_MINUTES
+    await client.query(
+      `UPDATE users
+      SET otp_hash = $1,
+        otp_expires_at = CURRENT_TIMESTAMP + make_interval(mins => $2),
+        otp_attempts = 0,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = $3`,
+      [otpHash, OTP_TTL_MINUTES, user.id]
+    );
+
+    await mailer.sendOtpEmail({
+      to: user.email,
+      code,
+      ttlMinutes: OTP_TTL_MINUTES
+    });
   });
 }
 
@@ -136,20 +183,16 @@ async function issueOtp({ db, mailer }, user) {
  * @throws {OtpError}
  */
 async function verifyOtp({ db, logger = console }, { email, code }) {
-  const client = await db.connect();
-  // Set when ROLLBACK fails: the connection is destroyed, not reused.
-  let brokenConnectionError;
-  let failure;
-
-  try {
-    await client.query('BEGIN');
-
+  // Expected failures are returned, not thrown, so the attempt counter
+  // update is committed before the error reaches the client.
+  const failure = await withTransaction(db, logger, async (client) => {
     const { rows } = await client.query(
       `SELECT
         id,
         email_verified,
         otp_hash,
         otp_attempts,
+        otp_expires_at,
         otp_expires_at <= CURRENT_TIMESTAMP AS expired
       FROM users
       WHERE email = $1
@@ -159,17 +202,25 @@ async function verifyOtp({ db, logger = console }, { email, code }) {
     const user = rows[0];
 
     if (!user) {
-      failure = errors.notFound();
-    } else if (user.email_verified) {
-      failure = errors.alreadyVerified();
-    } else if (user.otp_attempts >= OTP_MAX_ATTEMPTS) {
-      failure = errors.tooManyAttempts();
-    } else if (!user.otp_hash) {
-      failure = errors.noActiveCode();
-    } else if (user.expired) {
+      return errors.notFound();
+    }
+    if (user.email_verified) {
+      return errors.alreadyVerified();
+    }
+    if (user.otp_attempts >= OTP_MAX_ATTEMPTS) {
+      return errors.tooManyAttempts();
+    }
+    // A code without an expiry is never accepted (NULL <= now is NULL in SQL,
+    // which would otherwise read as "not expired").
+    if (!user.otp_hash || !user.otp_expires_at) {
+      return errors.noActiveCode();
+    }
+    if (user.expired) {
       // Not counted as a wrong attempt.
-      failure = errors.expired();
-    } else if (await bcrypt.compare(code, user.otp_hash)) {
+      return errors.expired();
+    }
+
+    if (await bcrypt.compare(code, user.otp_hash)) {
       await client.query(
         `UPDATE users
         SET email_verified = TRUE,
@@ -180,38 +231,27 @@ async function verifyOtp({ db, logger = console }, { email, code }) {
         WHERE id = $1`,
         [user.id]
       );
-    } else {
-      const attempts = user.otp_attempts + 1;
-      const exhausted = attempts >= OTP_MAX_ATTEMPTS;
-
-      // At the last allowed attempt the code is invalidated, so even the
-      // correct code is refused afterwards.
-      await client.query(
-        `UPDATE users
-        SET otp_attempts = $1,
-          otp_hash = CASE WHEN $2 THEN NULL ELSE otp_hash END,
-          otp_expires_at = CASE WHEN $2 THEN NULL ELSE otp_expires_at END,
-          updated_at = CURRENT_TIMESTAMP
-        WHERE id = $3`,
-        [attempts, exhausted, user.id]
-      );
-      failure = exhausted
-        ? errors.tooManyAttempts()
-        : errors.incorrect(OTP_MAX_ATTEMPTS - attempts);
+      return null;
     }
 
-    await client.query('COMMIT');
-  } catch (error) {
-    try {
-      await client.query('ROLLBACK');
-    } catch (rollbackError) {
-      brokenConnectionError = rollbackError;
-      logger.error('OTP verification rollback failed', rollbackError.stack);
-    }
-    throw error;
-  } finally {
-    client.release(brokenConnectionError);
-  }
+    const attempts = user.otp_attempts + 1;
+    const exhausted = attempts >= OTP_MAX_ATTEMPTS;
+
+    // At the last allowed attempt the code is invalidated, so even the
+    // correct code is refused afterwards.
+    await client.query(
+      `UPDATE users
+      SET otp_attempts = $1,
+        otp_hash = CASE WHEN $2 THEN NULL ELSE otp_hash END,
+        otp_expires_at = CASE WHEN $2 THEN NULL ELSE otp_expires_at END,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = $3`,
+      [attempts, exhausted, user.id]
+    );
+    return exhausted
+      ? errors.tooManyAttempts()
+      : errors.incorrect(OTP_MAX_ATTEMPTS - attempts);
+  });
 
   if (failure) {
     throw failure;
@@ -222,7 +262,7 @@ async function verifyOtp({ db, logger = console }, { email, code }) {
  * Replaces the user's code with a new one and emails it.
  *
  * @param {object} deps
- * @param {{ query: Function }} deps.db pg Pool
+ * @param {{ query: Function, connect: Function }} deps.db pg Pool
  * @param {{ sendOtpEmail: Function }} deps.mailer
  * @param {{ error: Function }} [deps.logger]
  * @param {{ email: string }} input validated, normalized email
@@ -243,12 +283,12 @@ async function resendOtp({ db, mailer, logger = console }, { email }) {
   }
 
   try {
-    await issueOtp({ db, mailer }, user);
+    await issueOtp({ db, mailer, logger }, user);
   } catch (error) {
     if (!(error instanceof MailDeliveryError)) {
       throw error;
     }
-    // The new code is stored, so the old one no longer works either way.
+    // Nothing was saved: the previous code, if any, still works.
     logger.error(`OTP resend failed for user ${user.id}`, error.stack);
     throw errors.sendFailed();
   }

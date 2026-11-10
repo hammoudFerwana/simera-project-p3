@@ -23,7 +23,9 @@ class EmailInUseError extends Error {
  * @param {{ error: Function }} [deps.logger]
  * @param {{ email: string, password: string }} input already validated and
  *   normalized email, raw password
- * @returns {Promise<{ id: number, email: string }>}
+ * @returns {Promise<{ user: { id: number, email: string }, otpSent: boolean }>}
+ *   otpSent is false when the account was created but the code couldn't be
+ *   sent (the candidate then requests a new one).
  * @throws {EmailInUseError} when the email is already registered
  */
 async function registerCandidate(
@@ -86,16 +88,18 @@ async function registerCandidate(
     client.release(brokenConnectionError);
   }
 
+  let otpSent = true;
   try {
     await sendOtp(user);
   } catch (error) {
     // The account exists; the candidate can request a new code (US-02).
     // The stack, not the whole object: mailer errors can carry the recipient
     // address in their fields, and logs must not contain the email.
+    otpSent = false;
     logger.error(`OTP sending failed for user ${user.id}`, error.stack);
   }
 
-  return user;
+  return { user, otpSent };
 }
 
 module.exports = {

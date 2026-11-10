@@ -162,7 +162,7 @@ Registers a candidate with an email and a password.
 - The email is trimmed and lowercased before it's checked and saved, so `Jane@Example.com` and `jane@example.com` are the same account.
 - The password must be at least 8 characters. Only a bcrypt hash (cost 12) is stored.
 - One transaction creates the `users` row (`email_verified = false`, `otp_attempts = 0`) and the linked `candidate_profiles` row. If either insert fails, nothing is saved. No `admins` row is created: admins are inserted by the team directly.
-- After the account is saved, a verification code is generated and emailed (see `POST /api/auth/verify-otp`). If sending fails, the account stays, and the candidate can request a new code with `POST /api/auth/resend-otp`.
+- After the account is saved, a verification code is generated and emailed (see `POST /api/auth/verify-otp`). If sending fails, the account stays without a code, the response has `otpSent: false`, and the candidate requests a new code with `POST /api/auth/resend-otp`.
 
 Request:
 
@@ -172,13 +172,14 @@ Request:
 
 Responses:
 
-| Status | When                     | Body                                                                                                             |
-| ------ | ------------------------ | ---------------------------------------------------------------------------------------------------------------- |
-| `201`  | Account created          | `{ "message": "Account created. Enter the verification code sent to your email.", "email": "..." }`              |
-| `400`  | Invalid input            | `{ "errors": { "email": "Enter a valid email address", "password": "Password must be at least 8 characters" } }` |
-| `400`  | Malformed JSON body      | `{ "errors": { "body": "Invalid JSON body" } }`                                                                  |
-| `409`  | Email already registered | `{ "errors": { "email": "This email is already in use" } }`                                                      |
-| `500`  | Unexpected error         | `{ "errors": { "server": "Something went wrong" } }`                                                             |
+| Status | When                           | Body                                                                                                                                   |
+| ------ | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `201`  | Account created                | `{ "message": "Account created. Enter the verification code sent to your email.", "email": "...", "otpSent": true }`                   |
+| `201`  | Account created, code not sent | `{ "message": "Account created, but the verification code could not be sent. Request a new code.", "email": "...", "otpSent": false }` |
+| `400`  | Invalid input                  | `{ "errors": { "email": "Enter a valid email address", "password": "Password must be at least 8 characters" } }`                       |
+| `400`  | Malformed JSON body            | `{ "errors": { "body": "Invalid JSON body" } }`                                                                                        |
+| `409`  | Email already registered       | `{ "errors": { "email": "This email is already in use" } }`                                                                            |
+| `500`  | Unexpected error               | `{ "errors": { "server": "Something went wrong" } }`                                                                                   |
 
 `errors` is keyed by field name, so each message can be shown next to its field.
 
@@ -207,6 +208,9 @@ After registering, the candidate receives a 6-digit code by email and must enter
 - Each wrong code increments `users.otp_attempts`. The 5th wrong code invalidates the code, so even the correct code is refused afterwards, and a new code must be requested.
 - An expired code is not counted as a wrong attempt.
 - Requesting a new code replaces the old one (it stops working) and resets `otp_attempts` to 0.
+- A new code is saved only if its email is sent. If sending fails, nothing changes: the previous code (if any) still works.
+- Parallel resend requests for the same user run one after another, so the last email received always holds the valid code.
+- A code with no expiry date is never accepted.
 - The candidate isn't logged in yet, so both endpoints take the email in the body. It's trimmed and lowercased, like at registration.
 
 Expected outcomes return `{ "errors": { <field>: message }, "reason": <code> }`. `reason` is a stable value the frontend can branch on, for example to show a "Resend code" button for `expired` and `too_many_attempts`.

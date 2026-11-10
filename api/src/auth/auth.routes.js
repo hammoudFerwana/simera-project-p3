@@ -36,12 +36,17 @@ function createAuthRouter({ getDb, getMailer }) {
     try {
       const db = getDb();
       const sendOtp = (user) => issueOtp({ db, mailer: getMailer() }, user);
-      const user = await registerCandidate({ db, sendOtp }, validation.data);
+      const { user, otpSent } = await registerCandidate(
+        { db, sendOtp },
+        validation.data
+      );
 
       return res.status(201).json({
-        message:
-          'Account created. Enter the verification code sent to your email.',
-        email: user.email
+        message: otpSent
+          ? 'Account created. Enter the verification code sent to your email.'
+          : 'Account created, but the verification code could not be sent. Request a new code.',
+        email: user.email,
+        otpSent
       });
     } catch (error) {
       if (error instanceof EmailInUseError) {
