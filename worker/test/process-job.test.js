@@ -2,7 +2,7 @@ const { Pool } = require('pg');
 const dotenv = require('dotenv');
 const path = require('path');
 const crypto = require('crypto');
-const { TemporaryError, PermanentError } =require('.../../shared/src/errors');
+const { TemporaryError, PermanentError } = require('../../shared/src/errors');
 const { processJob } = require('../src/process-job');
 
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
@@ -57,7 +57,7 @@ afterAll(async () => {
   if (pool) await pool.end();
 });
 
-async function seedJob() {
+async function seedCandidate() {
   const email = `test-job-${crypto.randomUUID()}@example.com`;
   createdEmails.push(email);
 
@@ -71,12 +71,18 @@ async function seedJob() {
      VALUES ($1, CURRENT_TIMESTAMP) RETURNING id`,
     [u.rows[0].id]
   );
+  return c.rows[0].id;
+}
+
+// Creates a file and a queued job for an existing candidate.
+// Jobs created later get a bigger id, so they are "newer".
+async function seedJobFor(candidateId) {
   const f = await pool.query(
     `INSERT INTO uploaded_files (candidate_id, source_type, original_filename,
        file_size, file_hash, storage_location, uploaded_at, validated_at)
      VALUES ($1, 'cv', 'a.pdf', 1, $2, 'test-location',
        CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) RETURNING id`,
-    [c.rows[0].id, crypto.randomUUID()]
+    [candidateId, crypto.randomUUID()]
   );
   const j = await pool.query(
     `INSERT INTO processing_jobs (file_id, created_at)
@@ -86,16 +92,23 @@ async function seedJob() {
   return j.rows[0].id;
 }
 
+async function seedJob() {
+  return seedJobFor(await seedCandidate());
+}
+
 async function getJob(id) {
-  const r = await pool.query('SELECT * FROM processing_jobs WHERE id = $1', [id]);
+  const r = await pool.query('SELECT * FROM processing_jobs WHERE id = $1', [
+    id
+  ]);
   return r.rows[0];
 }
 
 describe('processJob', () => {
   it('moves a job from queued to completed', async () => {
     const id = await seedJob();
-    await processJob(pool, id, { steps: [ok], sleep: noSleep });
+    const result = await processJob(pool, id, { steps: [ok], sleep: noSleep });
     const job = await getJob(id);
+    expect(result).toBe('done');
     expect(job.status).toBe('completed');
     expect(job.completed_at).not.toBeNull();
     expect(job.started_at).not.toBeNull();
@@ -175,9 +188,94 @@ describe('processJob', () => {
       ran = true;
       return ctx;
     };
-    await processJob(pool, id, { steps: [spy], sleep: noSleep });
+    const result = await processJob(pool, id, { steps: [spy], sleep: noSleep });
 
+    expect(result).toBe('skipped');
     expect(ran).toBe(false);
     expect((await getJob(id)).status).toBe('failed');
+  });
+
+  it('does not run the same job twice', async () => {
+    const id = await seedJob();
+    await processJob(pool, id, { steps: [ok], sleep: noSleep });
+
+    let ran = false;
+    const spy = async (ctx) => {
+      ran = true;
+      return ctx;
+    };
+    const result = await processJob(pool, id, { steps: [spy], sleep: noSleep });
+
+    const job = await getJob(id);
+    expect(result).toBe('skipped');
+    expect(ran).toBe(false);
+    expect(job.status).toBe('completed');
+    expect(job.attempt_count).toBe(1);
+  });
+});
+
+describe('per-candidate ordering', () => {
+  it('does not start the second job until the first one ends', async () => {
+    const candidateId = await seedCandidate();
+    const first = await seedJobFor(candidateId);
+    const second = await seedJobFor(candidateId);
+
+    let ran = false;
+    const spy = async (ctx) => {
+      ran = true;
+      return ctx;
+    };
+
+    // the first job is still queued, so the second must wait
+    const blocked = await processJob(pool, second, {
+      steps: [spy],
+      sleep: noSleep
+    });
+    const waiting = await getJob(second);
+    expect(blocked).toBe('blocked');
+    expect(ran).toBe(false);
+    expect(waiting.status).toBe('queued');
+    expect(waiting.attempt_count).toBe(0);
+
+    // the first job runs and ends
+    await processJob(pool, first, { steps: [ok], sleep: noSleep });
+    expect((await getJob(first)).status).toBe('completed');
+
+    // now the second job can run
+    const result = await processJob(pool, second, {
+      steps: [spy],
+      sleep: noSleep
+    });
+    expect(result).toBe('done');
+    expect(ran).toBe(true);
+    expect((await getJob(second)).status).toBe('completed');
+  });
+
+  it('lets the next job run after the previous one failed', async () => {
+    const candidateId = await seedCandidate();
+    const first = await seedJobFor(candidateId);
+    const second = await seedJobFor(candidateId);
+
+    const fail = async () => {
+      throw new PermanentError('bad file');
+    };
+    await processJob(pool, first, { steps: [fail], sleep: noSleep });
+    expect((await getJob(first)).status).toBe('failed');
+
+    const result = await processJob(pool, second, {
+      steps: [ok],
+      sleep: noSleep
+    });
+    expect(result).toBe('done');
+    expect((await getJob(second)).status).toBe('completed');
+  });
+
+  it('runs jobs of different candidates independently', async () => {
+    const a = await seedJob();
+    const b = await seedJob();
+    const resultB = await processJob(pool, b, { steps: [ok], sleep: noSleep });
+    const resultA = await processJob(pool, a, { steps: [ok], sleep: noSleep });
+    expect(resultA).toBe('done');
+    expect(resultB).toBe('done');
   });
 });

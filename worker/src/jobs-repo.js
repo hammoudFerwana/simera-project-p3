@@ -12,8 +12,24 @@ async function startAttempt(db, jobId, maxAttempts) {
         AND f.id = j.file_id
         AND j.status IN ('queued', 'processing')
         AND j.attempt_count < $2
+        AND NOT EXISTS (
+          SELECT 1
+            FROM processing_jobs j2
+            JOIN uploaded_files f2 ON f2.id = j2.file_id
+           WHERE f2.candidate_id = f.candidate_id
+             AND j2.id < j.id
+             AND j2.status IN ('queued', 'processing')
+        )
       RETURNING j.*, f.candidate_id`,
     [jobId, maxAttempts]
+  );
+  return rows[0] || null;
+}
+
+async function getJob(db, jobId) {
+  const { rows } = await db.query(
+    'SELECT * FROM processing_jobs WHERE id = $1',
+    [jobId]
   );
   return rows[0] || null;
 }
@@ -48,7 +64,11 @@ async function markFailed(db, jobId, reason) {
   );
 }
 
-async function markCompleted(db, jobId, { changedFieldCount, pendingReviewCount }) {
+async function markCompleted(
+  db,
+  jobId,
+  { changedFieldCount, pendingReviewCount }
+) {
   await db.query(
     `UPDATE processing_jobs
         SET status = CASE WHEN $3 > 0 THEN 'completed_with_review'
@@ -60,4 +80,11 @@ async function markCompleted(db, jobId, { changedFieldCount, pendingReviewCount 
   );
 }
 
-module.exports = { startAttempt, failIfExhausted, scheduleRetry, markFailed, markCompleted };
+module.exports = {
+  startAttempt,
+  failIfExhausted,
+  scheduleRetry,
+  markFailed,
+  markCompleted,
+  getJob
+};
