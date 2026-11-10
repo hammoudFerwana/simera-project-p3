@@ -279,3 +279,35 @@ describe('per-candidate ordering', () => {
     expect(resultB).toBe('done');
   });
 });
+describe('restart recovery', () => {
+  it('finishes a job left in processing by a crashed worker', async () => {
+    const id = await seedJob();
+    await pool.query(
+      `UPDATE processing_jobs
+          SET status = 'processing', attempt_count = 1,
+              started_at = CURRENT_TIMESTAMP
+        WHERE id = $1`,
+      [id]
+    );
+    const result = await processJob(pool, id, { steps: [ok], sleep: noSleep });
+    const job = await getJob(id);
+    expect(result).toBe('done');
+    expect(job.status).toBe('completed');
+    expect(job.attempt_count).toBe(2);
+  });
+
+  it('fails a job whose last attempt crashed', async () => {
+    const id = await seedJob();
+    await pool.query(
+      `UPDATE processing_jobs
+          SET status = 'processing', attempt_count = 3
+        WHERE id = $1`,
+      [id]
+    );
+    const result = await processJob(pool, id, { steps: [ok], sleep: noSleep });
+    const job = await getJob(id);
+    expect(result).toBe('skipped');
+    expect(job.status).toBe('failed');
+    expect(job.failure_reason).toBe('Maximum attempts reached');
+  });
+});
