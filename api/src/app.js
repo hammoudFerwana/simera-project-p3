@@ -1,4 +1,5 @@
 const express = require('express');
+const cookieParser = require('cookie-parser');
 const { createAuthRouter } = require('./auth/auth.routes');
 
 // Loaded on first use so the app (and /health) starts without a database or
@@ -26,6 +27,7 @@ function createApp({
   const app = express();
 
   app.use(express.json());
+  app.use(cookieParser());
 
   app.get('/health', (req, res) => {
     res.status(200).json({ status: 'ok' });
