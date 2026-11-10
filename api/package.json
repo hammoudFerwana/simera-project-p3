@@ -9,6 +9,7 @@
   "dependencies": {
     "bcrypt": "^6.0.0",
     "express": "^4.21.2",
+    "nodemailer": "^10.4.0",
     "shared": "*",
     "zod": "^4.6.7"
   }

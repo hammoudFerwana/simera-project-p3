@@ -1,18 +1,28 @@
 const express = require('express');
 const { createAuthRouter } = require('./auth/auth.routes');
-const { sendOtp: defaultSendOtp } = require('./auth/send-otp');
 
-// Loaded on first use so the app (and /health) starts without a database.
+// Loaded on first use so the app (and /health) starts without a database or
+// an SMTP server.
 const defaultGetDb = () => require('shared/src/database');
+let smtpMailer;
+const defaultGetMailer = () => {
+  if (!smtpMailer) {
+    smtpMailer = require('./mail/mailer').createSmtpMailer();
+  }
+  return smtpMailer;
+};
 
 /**
  * Builds the Express app. Dependencies can be replaced in tests.
  *
  * @param {object} [deps]
  * @param {() => object} [deps.getDb] returns the pg Pool
- * @param {Function} [deps.sendOtp] OTP service (US-02)
+ * @param {() => { sendOtpEmail: Function }} [deps.getMailer] returns the mailer
  */
-function createApp({ getDb = defaultGetDb, sendOtp = defaultSendOtp } = {}) {
+function createApp({
+  getDb = defaultGetDb,
+  getMailer = defaultGetMailer
+} = {}) {
   const app = express();
 
   app.use(express.json());
@@ -21,7 +31,7 @@ function createApp({ getDb = defaultGetDb, sendOtp = defaultSendOtp } = {}) {
     res.status(200).json({ status: 'ok' });
   });
 
-  app.use('/api/auth', createAuthRouter({ getDb, sendOtp }));
+  app.use('/api/auth', createAuthRouter({ getDb, getMailer }));
 
   // eslint-disable-next-line no-unused-vars
   app.use((error, req, res, next) => {
