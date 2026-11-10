@@ -1,0 +1,62 @@
+# Worker (US-05)
+
+Background worker that processes each accepted file in ordered steps. It uses pg-boss (on the same PostgreSQL database) to deliver jobs, and the `processing_jobs` table as the source of truth for job status.
+
+## Run
+
+```bash
+npm run dev:worker
+```
+
+The first start creates the `pgboss` schema inside the database. No extra service is needed.
+
+## Job flow
+
+- `queued` -> `processing` -> `completed`, `completed_with_review` (when `pending_review_count > 0`) or `failed`.
+- One job per file (`processing_jobs.file_id` is unique).
+- A job starts only when no older job of the same candidate is `queued` or `processing`. Jobs of different candidates are independent.
+- Temporary failure (`TemporaryError`): retried inside the same job, up to 3 attempts, with an increasing delay. Then `failed` with `failure_reason`.
+- Permanent failure (`PermanentError`): `failed` at once, no retry.
+- A failed job is never run again. The candidate uploads an updated file.
+- If the worker stops in the middle of a job, pg-boss delivers it again after 30 minutes and the attempt count continues from the saved value.
+- When a job ends, `completed_at`, `changed_field_count` and `pending_review_count` are set (or `failure_reason` if it failed).
+
+## Steps
+
+Steps live in `worker/src/steps/index.js`, in this order:
+
+1. extract text and links (US-06)
+2. check the email (US-07)
+3. call the LLM (US-08)
+4. normalize skills (US-13)
+5. validate with code (US-09, US-14)
+6. compare with stored data and apply the latest rules (US-15, US-16, US-17)
+7. store (US-10)
+
+Recording the completion is done by the worker after the last step.
+
+Each step is `async (ctx) => ctx`. It throws `TemporaryError` or `PermanentError` (from `shared/src/errors`). Errors are classified by type, never by message text. Do not put CV text in error messages, because the message is saved in `failure_reason`.
+
+To replace a stub, change the entry in `worker/src/steps/index.js`. The orchestrator does not change.
+
+## Add a job from the API (US-04, US-22)
+
+1. Insert the `processing_jobs` row with status `queued`.
+2. Call `enqueueJob(boss, jobId)` from `worker/src/queue.js`, once.
+
+## Files
+
+- `src/index.js`: starts and stops the worker.
+- `src/queue.js`: pg-boss setup, `enqueueJob`, `startWorker`.
+- `src/process-job.js`: runs one job (retries, ordering, completion).
+- `src/jobs-repo.js`: all `processing_jobs` updates.
+- `src/orchestrator.js`: runs the steps in order.
+- `scripts/smoke-queue.js`: manual check of the ordering with real pg-boss (runs on the `simera` database).
+
+## Tests
+
+They use `TEST_DATABASE_URL` (`simera_test`).
+
+```bash
+npx jest worker/test/process-job.test.js --verbose --runInBand
+```
