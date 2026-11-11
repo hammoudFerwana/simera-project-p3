@@ -307,7 +307,17 @@ The email is trimmed and lowercased, like at registration.
 | `200`  |                         | Correct credentials; sets the `access_token` cookie                          | `{ "message": "Logged in", "user": { "id": 2, "email": "jane.doe@example.com", "role": "candidate" } }` |
 | `400`  |                         | Invalid email, or an empty password                                          | `errors.email` / `errors.password`: field message                                                       |
 | `401`  | `invalid_credentials`   | Unknown email or wrong password (same message for both)                      | `errors.credentials`: "Email or password is incorrect"                                                  |
-| `403`  | `verification_required` | Correct password, but the candidate's email isn't verified; no cookie is set | `errors.email`: "Verify your email before logging in", plus `email`                                     |
+| `403`  | `verification_required` | Correct password, but the candidate's email isn't verified; no cookie is set | See the example below                                                                                   |
+
+The `403` body also carries the account's normalized email at the top level, so the frontend can open `/verify` for it:
+
+```json
+{
+  "errors": { "email": "Verify your email before logging in" },
+  "reason": "verification_required",
+  "email": "jane.doe@example.com"
+}
+```
 
 The frontend redirects by `user.role` (`candidate` → `/candidate`, `admin` → `/admin`), and to `/verify` on `verification_required`.
 
