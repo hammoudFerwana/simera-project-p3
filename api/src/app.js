@@ -1,9 +1,12 @@
 const express = require('express');
 const cookieParser = require('cookie-parser');
+const { readUploadConfig } = require('shared/src/upload/upload.config');
+const { createLocalStorage } = require('shared/src/upload/storage');
 const { createAuthRouter } = require('./auth/auth.routes');
+const { createUploadsRouter } = require('./upload/upload.routes');
 
-// Loaded on first use so the app (and /health) starts without a database or
-// an SMTP server.
+// Loaded on first use so the app (and /health) starts without a database,
+// an SMTP server or the queue.
 const defaultGetDb = () => require('shared/src/database');
 let smtpMailer;
 const defaultGetMailer = () => {
@@ -12,6 +15,30 @@ const defaultGetMailer = () => {
   }
   return smtpMailer;
 };
+let rawFileStorage;
+const defaultGetStorage = () => {
+  if (!rawFileStorage) {
+    rawFileStorage = createLocalStorage({
+      directory: readUploadConfig().storageDir
+    });
+  }
+  return rawFileStorage;
+};
+
+// The API only sends jobs to pg-boss; the worker processes them (US-05).
+let bossPromise;
+async function defaultEnqueueJob(jobId) {
+  const { startBoss, enqueueJob } = require('shared/src/queue');
+  if (!bossPromise) {
+    const { DATABASE_URL } = require('shared/src/config').loadConfig();
+    bossPromise = Promise.resolve(startBoss(DATABASE_URL)).catch((error) => {
+      // Try again on the next upload instead of keeping the failure.
+      bossPromise = undefined;
+      throw error;
+    });
+  }
+  return enqueueJob(await bossPromise, jobId);
+}
 
 /**
  * Builds the Express app. Dependencies can be replaced in tests.
@@ -19,10 +46,17 @@ const defaultGetMailer = () => {
  * @param {object} [deps]
  * @param {() => object} [deps.getDb] returns the pg Pool
  * @param {() => { sendOtpEmail: Function }} [deps.getMailer] returns the mailer
+ * @param {() => object} [deps.getStorage] returns the raw file storage
+ * @param {(jobId: number) => Promise<void>} [deps.enqueueJob] sends a job id
+ *   to the queue
+ * @param {() => object} [deps.getUploadConfig] returns the upload settings
  */
 function createApp({
   getDb = defaultGetDb,
-  getMailer = defaultGetMailer
+  getMailer = defaultGetMailer,
+  getStorage = defaultGetStorage,
+  enqueueJob = defaultEnqueueJob,
+  getUploadConfig = readUploadConfig
 } = {}) {
   const app = express();
 
@@ -34,6 +68,10 @@ function createApp({
   });
 
   app.use('/api/auth', createAuthRouter({ getDb, getMailer }));
+  app.use(
+    '/api/uploads',
+    createUploadsRouter({ getDb, getStorage, enqueueJob, getUploadConfig })
+  );
 
   // eslint-disable-next-line no-unused-vars
   app.use((error, req, res, next) => {

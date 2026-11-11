@@ -1,27 +1,27 @@
-import { createTheme } from "@mui/material/styles";
+import { createTheme } from '@mui/material/styles';
 
 const theme = createTheme({
   palette: {
-    mode: "light",
+    mode: 'light',
     primary: {
-      main: "#2563EB",
+      main: '#2563EB'
     },
     secondary: {
-      main: "#64748B",
+      main: '#64748B'
     },
     background: {
-      default: "#F8FAFC",
-      paper: "#FFFFFF",
-    },
+      default: '#F8FAFC',
+      paper: '#FFFFFF'
+    }
   },
 
   typography: {
-    fontFamily: "Roboto, Arial, sans-serif",
+    fontFamily: 'Roboto, Arial, sans-serif'
   },
 
   shape: {
-    borderRadius: 8,
-  },
+    borderRadius: 8
+  }
 });
 
 export default theme;

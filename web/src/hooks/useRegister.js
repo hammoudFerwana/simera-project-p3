@@ -1,8 +1,7 @@
-
-import { useMutation } from "@tanstack/react-query";
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import axiosInstance from "../api/axiosInstance";
+import { useMutation } from '@tanstack/react-query';
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import axiosInstance from '../api/axiosInstance';
 
 export default function useRegister() {
   const [serverErrors, setServerErrors] = useState([]);
@@ -12,16 +11,16 @@ export default function useRegister() {
     mutationFn: async (values) => {
       const { confirmPassword, ...registerData } = values;
 
-      return await axiosInstance.post("/auth/register", registerData);
+      return await axiosInstance.post('/auth/register', registerData);
     },
 
     onSuccess: () => {
-      navigate("/auth/verify-otp");
+      navigate('/auth/verify-otp');
     },
 
     onError: (err) => {
       setServerErrors(err.response?.data?.errors || []);
-    },
+    }
   });
 
   return { serverErrors, registerMutation };
