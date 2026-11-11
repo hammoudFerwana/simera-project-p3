@@ -276,6 +276,107 @@ Run the OTP tests only. They run against the real `simera_test` database (`TEST_
 npx jest api/test/otp.test.js --verbose
 ```
 
+### Login, logout and access guards (US-03)
+
+One login for candidates and admins. On success the API signs a **JWT** holding `{ userId, role }` and sends it in an **HttpOnly cookie** named `access_token`. The browser sends the cookie back automatically on every request; the frontend never reads or stores the token itself.
+
+- **Role:** `admin` if the user has an `admins` row, otherwise `candidate` (there is no role column). It's derived at login and kept inside the token.
+- **Expiry:** `JWT_EXPIRES_IN_HOURS` (default 24) for both the token and the cookie. After that the user logs in again.
+- **Stateless:** tokens aren't stored anywhere. Logout clears the cookie; a token copied before logout stays valid until it expires, and a role change (an `admins` row added or removed) applies at the next login.
+- **Cookie:** `HttpOnly`, `SameSite=Lax`, `Path=/`, and `Secure` when `NODE_ENV=production`.
+- **Frontend on another port:** cookies are sent only to the same site, so run the frontend through a dev proxy to the API (e.g. Vite `server.proxy` for `/api`) and send requests with `credentials: 'include'`.
+
+Requires `JWT_SECRET` in `.env` (the API refuses to start without it). Generate one with:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
+```
+
+#### `POST /api/auth/login`
+
+Request:
+
+```json
+{ "email": "jane.doe@example.com", "password": "secret-password" }
+```
+
+The email is trimmed and lowercased, like at registration.
+
+| Status | `reason`                | When                                                                         | Body                                                                                                    |
+| ------ | ----------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `200`  |                         | Correct credentials; sets the `access_token` cookie                          | `{ "message": "Logged in", "user": { "id": 2, "email": "jane.doe@example.com", "role": "candidate" } }` |
+| `400`  |                         | Invalid email, or an empty password                                          | `errors.email` / `errors.password`: field message                                                       |
+| `401`  | `invalid_credentials`   | Unknown email or wrong password (same message for both)                      | `errors.credentials`: "Email or password is incorrect"                                                  |
+| `403`  | `verification_required` | Correct password, but the candidate's email isn't verified; no cookie is set | See the example below                                                                                   |
+
+The `403` body also carries the account's normalized email at the top level, so the frontend can open `/verify` for it:
+
+```json
+{
+  "errors": { "email": "Verify your email before logging in" },
+  "reason": "verification_required",
+  "email": "jane.doe@example.com"
+}
+```
+
+The frontend redirects by `user.role` (`candidate` → `/candidate`, `admin` → `/admin`), and to `/verify` on `verification_required`.
+
+#### `POST /api/auth/logout`
+
+Clears the cookie. Always `200` with `{ "message": "Logged out" }`, with or without a token.
+
+#### `GET /api/auth/me`
+
+Returns the logged-in user from the cookie, so the frontend can restore the session after a page reload.
+
+| Status | Body                                                               |
+| ------ | ------------------------------------------------------------------ |
+| `200`  | `{ "user": { "id": 2, "role": "candidate" } }`                     |
+| `401`  | `errors.auth`: "Log in to continue" (no, invalid or expired token) |
+
+Try it (`-c` saves the cookie, `-b` sends it):
+
+```bash
+curl -i -c cookies.txt -X POST http://localhost:3000/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"admin@example.com","password":"change_this_password_123"}'
+
+curl -i -b cookies.txt http://localhost:3000/api/auth/me
+
+curl -i -b cookies.txt -c cookies.txt -X POST http://localhost:3000/api/auth/logout
+```
+
+#### Guards for protected routes
+
+Every later protected route uses the guards in `api/src/auth/guards.js` instead of its own checks:
+
+| Guard                                 | Checks                                                                                                               | Fails with |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | ---------- |
+| `requireAuth`                         | A valid, unexpired token cookie. Sets `req.user = { userId, role }`                                                  | `401`      |
+| `requireRole('admin' \| 'candidate')` | `req.user.role` is the given role                                                                                    | `403`      |
+| `requireOwnership(getOwnerUserId)`    | A candidate owns the resource (`getOwnerUserId(req)`, sync or async, returns its `users.id`). An admin always passes | `403`      |
+
+`requireRole` and `requireOwnership` run after `requireAuth`. Errors use `errors.auth` ("Log in to continue" / "You do not have access to this resource").
+
+```js
+const {
+  requireAuth,
+  requireRole,
+  requireOwnership
+} = require('../auth/guards');
+
+// Admin-only API
+router.get('/candidates', requireAuth, requireRole('admin'), listCandidates);
+
+// A candidate reaches only their own file; an admin reaches any file
+router.get(
+  '/files/:fileId',
+  requireAuth,
+  requireOwnership(async (req) => findFileOwnerUserId(req.params.fileId)),
+  getFile
+);
+```
+
 ## Testing and Code Quality
 
 - **Run Tests**:
