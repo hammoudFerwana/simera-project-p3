@@ -7,7 +7,8 @@ const { TOKEN_COOKIE_NAME, verifyToken } = require('./token');
 
 const messages = {
   notLoggedIn: 'Log in to continue',
-  forbidden: 'You do not have access to this resource'
+  forbidden: 'You do not have access to this resource',
+  verificationRequired: 'Verify your email to continue'
 };
 
 function sendForbidden(res) {
@@ -74,4 +75,46 @@ function requireOwnership(getOwnerUserId) {
   };
 }
 
-module.exports = { requireAuth, requireOwnership, requireRole };
+/**
+ * Requires a candidate whose email is verified (403 otherwise), checked in
+ * the database. Use after requireAuth and requireRole('candidate').
+ * Sets req.candidate = { id } (candidate_profiles.id).
+ *
+ * @param {() => { query: Function }} getDb returns the pg Pool
+ */
+function requireVerifiedCandidate(getDb) {
+  return async (req, res, next) => {
+    try {
+      const result = await getDb().query(
+        `SELECT cp.id AS candidate_id, u.email_verified
+        FROM users u
+        JOIN candidate_profiles cp ON cp.user_id = u.id
+        WHERE u.id = $1`,
+        [req.user.userId]
+      );
+      const row = result.rows[0];
+
+      if (!row) {
+        return sendForbidden(res);
+      }
+      if (!row.email_verified) {
+        return res.status(403).json({
+          errors: { auth: messages.verificationRequired },
+          reason: 'verification_required'
+        });
+      }
+
+      req.candidate = { id: row.candidate_id };
+      return next();
+    } catch (error) {
+      return next(error);
+    }
+  };
+}
+
+module.exports = {
+  requireAuth,
+  requireOwnership,
+  requireRole,
+  requireVerifiedCandidate
+};

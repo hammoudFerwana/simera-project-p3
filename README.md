@@ -377,6 +377,92 @@ router.get(
 );
 ```
 
+### File upload (US-04)
+
+A verified candidate uploads a CV (PDF or DOCX) and a LinkedIn file (md, exported with the "LinkedIn to Markdown" extension) in two separate slots, one file per request. An updated version can be uploaded at any time, and each accepted file gets its own processing job.
+
+**What happens, in order** (requirements 3.3):
+
+1. The extension is accepted for the slot: `cv` → `.pdf` / `.docx`, `linkedin` → `.md`.
+2. The real content matches the extension: PDF starts with `%PDF-`, DOCX is a ZIP holding `word/document.xml`, md is valid UTF-8 text. The client's `Content-Type` is ignored.
+3. The size is 10 MB or less.
+4. The file opens and its text is extracted (unpdf for PDF, mammoth for DOCX, md read as plain text and never rendered as HTML). Text shorter than `MIN_EXTRACTED_TEXT_CHARS` (after collapsing whitespace) means "no readable text".
+5. Duplicate check: SHA-256 of the extracted text (trimmed, whitespace collapsed), looked up in **all** `uploaded_files` rows. The same text with different spacing, or uploaded by another candidate, is a duplicate.
+6. The raw file is saved unchanged in private storage (`UPLOAD_STORAGE_DIR`, default `storage/uploads/`), under a random name.
+7. One transaction inserts the `uploaded_files` row and its `processing_jobs` row (status `queued`).
+8. The job id is sent to the queue (`enqueueJob` from `shared/src/queue.js`, pg-boss), once.
+
+**A rejected file leaves nothing behind:** no raw file, no row, no job, and the reason is only in the response. If saving fails after the raw file was written, the file is deleted again.
+
+**Shared service:** steps 1–8 live in `processUpload()` in `shared/src/upload/upload.service.js`, with a `sourceType` parameter, so US-22 (Simera JSON) uses the same function with `createJob: false` (its job is created when the admin clicks the button).
+
+**Settings** (optional, in `.env`):
+
+| Variable                   | Default           | Meaning                                                                                   |
+| -------------------------- | ----------------- | ----------------------------------------------------------------------------------------- |
+| `UPLOAD_STORAGE_DIR`       | `storage/uploads` | Private folder for raw files, relative to the repository root (git-ignored, never served) |
+| `MIN_EXTRACTED_TEXT_CHARS` | `50`              | Minimum extracted text length; below it, "no readable text"                               |
+
+#### `POST /api/uploads/:sourceType`
+
+- `:sourceType` is `cv` or `linkedin`.
+- Body: `multipart/form-data` with the file in a field named **`file`**.
+- Access: a logged-in candidate (`access_token` cookie) with a verified email.
+
+| Status | `reason`                | When                                                 | Message (`errors.<field>`)                                                                             |
+| ------ | ----------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `202`  |                         | Accepted and queued                                  | `{ "message": "File received, processing has started", "fileId": 7, "jobId": 7 }`                      |
+| `400`  |                         | Unknown slot                                         | `sourceType`: "Upload type must be one of: cv, linkedin"                                               |
+| `400`  |                         | No file, or not in the `file` field, or two files    | `file`: "Choose a file to upload" / "Upload exactly one file in the \"file\" field"                    |
+| `400`  | `unsupported_format`    | Wrong extension for the slot, or content ≠ extension | `file`: "This file type is not accepted. Accepted formats for the CV: PDF, DOCX" (+ `acceptedFormats`) |
+| `400`  | `corrupted_file`        | The file can't be opened or read                     | `file`: "The file is corrupted, please upload a valid file"                                            |
+| `400`  | `no_readable_text`      | Empty or nearly empty text (e.g. a scanned PDF)      | `file`: "The file has no readable text. Scanned or image-only files are not supported"                 |
+| `401`  |                         | Not logged in                                        | `auth`: "Log in to continue"                                                                           |
+| `403`  |                         | Logged in as an admin                                | `auth`: "You do not have access to this resource"                                                      |
+| `403`  | `verification_required` | The candidate's email isn't verified                 | `auth`: "Verify your email to continue"                                                                |
+| `409`  | `duplicate_file`        | The same text was already uploaded                   | `file`: "This file was already uploaded"                                                               |
+| `413`  | `file_too_large`        | Larger than 10 MB                                    | `file`: "The file is larger than 10 MB. Upload a file of 10 MB or less"                                |
+
+#### `GET /api/uploads/:fileId/raw`
+
+Downloads the original file unchanged. **Admin only.** It's always sent as an attachment with `X-Content-Type-Options: nosniff`, so the browser never renders it.
+
+| Status | When                                 | Body                                                     |
+| ------ | ------------------------------------ | -------------------------------------------------------- |
+| `200`  | Found                                | The raw bytes (`Content-Disposition: attachment`)        |
+| `400`  | `fileId` isn't a positive integer    | `errors.fileId`: "File id must be a positive integer"    |
+| `401`  | Not logged in                        | `errors.auth`: "Log in to continue"                      |
+| `403`  | Not an admin (even the file's owner) | `errors.auth`: "You do not have access to this resource" |
+| `404`  | No such file                         | `errors.fileId`: "File not found"                        |
+
+Try it with the API running (log in first so `cookies.txt` holds a candidate's cookie, see US-03):
+
+```bash
+curl -i -b cookies.txt -F "file=@api/test/fixtures/cv.pdf" http://localhost:3000/api/uploads/cv
+curl -i -b cookies.txt -F "file=@api/test/fixtures/linkedin.md" http://localhost:3000/api/uploads/linkedin
+
+# As an admin
+curl -b admin-cookies.txt -o raw.pdf http://localhost:3000/api/uploads/1/raw
+```
+
+Then check the database:
+
+```sql
+SELECT f.id, f.source_type, f.original_filename, f.file_size, f.mime_type,
+  f.storage_location, f.validated_at, j.id AS job_id, j.status
+FROM uploaded_files f
+JOIN processing_jobs j ON j.file_id = f.id
+ORDER BY f.id DESC;
+```
+
+**Queue dependency:** sending the job needs `shared/src/queue.js` (`startBoss`, `enqueueJob`) from US-05. Once the rows are committed the upload is accepted (`202`), even if sending the job fails: the job stays `queued` in `processing_jobs` and the API logs `Sending job <id> to the queue failed`. Until US-05 is merged every real upload ends this way (the log shows `Cannot find module 'shared/src/queue'`). Such a job is processed only after it's sent to the queue, so US-05 must send every `queued` job that isn't in pg-boss yet (for example at worker startup, using the job id as the pg-boss singleton key so it's never queued twice). The tests use a fake queue and don't need it.
+
+Run the upload tests (no database, no queue needed; sample files are in `api/test/fixtures/`):
+
+```bash
+npm test -- api/test/upload.test.js --verbose
+```
+
 ## Testing and Code Quality
 
 - **Run Tests**:
@@ -390,8 +476,10 @@ router.get(
   To run a single test file and print every test name:
 
   ```bash
-  npx jest <path-to-test-file> --verbose
+  npm test -- <path-to-test-file> --verbose
   ```
+
+  `npm test` runs Jest with `node --experimental-vm-modules`, which the PDF extractor (unpdf) needs inside Jest. Plain `npx jest` works for the other tests but fails the PDF upload tests.
 
   For the extraction data contract (schema, tests and field-to-column mapping), see [shared/README.md](shared/README.md).
 
