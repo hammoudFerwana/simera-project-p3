@@ -482,6 +482,7 @@ npm test -- api/test/upload.test.js --verbose
   `npm test` runs Jest with `node --experimental-vm-modules`, which the PDF extractor (unpdf) needs inside Jest. Plain `npx jest` works for the other tests but fails the PDF upload tests.
 
   For the extraction data contract (schema, tests and field-to-column mapping), see [shared/README.md](shared/README.md).
+  For the queue and worker (job flow, retries, steps), see [worker/README.md](worker/README.md)
 
 - **Run Tests Sequentially**:
 
