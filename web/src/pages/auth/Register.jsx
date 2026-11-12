@@ -7,7 +7,6 @@ import {
   Paper
 } from '@mui/material';
 
-import PersonAddOutlinedIcon from '@mui/icons-material/PersonAddOutlined';
 
 import { Link as RouterLink } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
