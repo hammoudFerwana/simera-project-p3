@@ -1,4 +1,3 @@
-
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { loginApi } from "../api/axiosAuthInstance";
@@ -19,6 +18,19 @@ const useLogin = () => {
         navigate("/admin", { replace: true });
       } else if (user.role === "candidate") {
         navigate("/candidate", { replace: true });
+      }
+    },
+
+    onError: (error) => {
+      const data = error.response?.data;
+
+      if (
+        error.response?.status === 403 &&
+        data?.reason === "verification_required"
+      ) {
+        navigate("/auth/verify-otp", {
+          state: { email: data.email },
+        });
       }
     },
   });
