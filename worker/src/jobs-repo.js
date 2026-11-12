@@ -34,6 +34,17 @@ async function getJob(db, jobId) {
   return rows[0] || null;
 }
 
+async function getCandidateId(db, jobId) {
+  const { rows } = await db.query(
+    `SELECT f.candidate_id
+       FROM processing_jobs j
+       JOIN uploaded_files f ON f.id = j.file_id
+      WHERE j.id = $1`,
+    [jobId]
+  );
+  return rows[0] ? rows[0].candidate_id : null;
+}
+
 // A job that crashed on its last attempt is closed as failed.
 async function failIfExhausted(db, jobId, maxAttempts) {
   await db.query(
@@ -86,5 +97,6 @@ module.exports = {
   scheduleRetry,
   markFailed,
   markCompleted,
-  getJob
+  getJob,
+  getCandidateId
 };

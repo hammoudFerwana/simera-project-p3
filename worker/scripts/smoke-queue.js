@@ -1,7 +1,11 @@
 const crypto = require('crypto');
 const pool = require('../../shared/src/database');
 const { loadConfig } = require('../../shared/src/config');
-const { startBoss, startWorker, enqueueJob } = require('../src/queue');
+const {
+  startBoss,
+  startWorker,
+  enqueueJob
+} = require('../../shared/src/queue');
 const { processJob } = require('../src/process-job');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

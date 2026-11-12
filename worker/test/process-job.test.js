@@ -311,3 +311,41 @@ describe('restart recovery', () => {
     expect(job.failure_reason).toBe('Maximum attempts reached');
   });
 });
+
+async function waitFor(condition) {
+  for (let i = 0; i < 100; i += 1) {
+    if (condition()) return;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error('timeout');
+}
+
+describe('locking', () => {
+  it('does not run the same job twice at the same time', async () => {
+    const id = await seedJob();
+    let release;
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    let runs = 0;
+    const slow = async (ctx) => {
+      runs += 1;
+      await gate;
+      return ctx;
+    };
+
+    const first = processJob(pool, id, { steps: [slow], sleep: noSleep });
+    await waitFor(() => runs === 1);
+
+    const second = await processJob(pool, id, {
+      steps: [slow],
+      sleep: noSleep
+    });
+    release();
+    await first;
+
+    expect(second).toBe('blocked');
+    expect(runs).toBe(1);
+    expect((await getJob(id)).status).toBe('completed');
+  });
+});

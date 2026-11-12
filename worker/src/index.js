@@ -1,6 +1,10 @@
 const { loadConfig } = require('shared/src/config');
 const pool = require('shared/src/database');
-const { startBoss, startWorker } = require('./queue');
+const {
+  startBoss,
+  startWorker,
+  enqueueQueuedJobs
+} = require('shared/src/queue');
 const { processJob } = require('./process-job');
 
 const config = loadConfig();
@@ -8,7 +12,8 @@ const config = loadConfig();
 async function main() {
   const boss = await startBoss(config.DATABASE_URL);
   await startWorker(boss, pool, processJob);
-  console.log('worker started');
+  const sent = await enqueueQueuedJobs(boss, pool);
+  console.log(`worker started (${sent} queued jobs sent to the queue)`);
 
   let stopping = false;
   async function shutdown() {

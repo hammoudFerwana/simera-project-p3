@@ -7,7 +7,6 @@
     "start": "node src/index.js"
   },
   "dependencies": {
-    "pg-boss": "^10.4.2",
     "shared": "*"
   }
 }
