@@ -4,7 +4,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { TemporaryError, PermanentError } = require('../../shared/src/errors');
 const { processJob } = require('../src/process-job');
-
+const { enqueueUnfinishedJobs } = require('../../shared/src/queue');
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
 let pool;
@@ -347,5 +347,29 @@ describe('locking', () => {
     expect(second).toBe('blocked');
     expect(runs).toBe(1);
     expect((await getJob(id)).status).toBe('completed');
+  });
+});
+
+describe('enqueueUnfinishedJobs', () => {
+  it('sends queued and processing jobs, not finished ones', async () => {
+    const queued = await seedJob();
+    const processing = await seedJob();
+    const done = await seedJob();
+    await pool.query(
+      `UPDATE processing_jobs SET status = 'processing' WHERE id = $1`,
+      [processing]
+    );
+    await pool.query(
+      `UPDATE processing_jobs SET status = 'completed' WHERE id = $1`,
+      [done]
+    );
+
+    const sent = [];
+    const fakeBoss = { send: async (name, data) => sent.push(data.jobId) };
+    await enqueueUnfinishedJobs(fakeBoss, pool);
+
+    expect(sent).toContain(queued);
+    expect(sent).toContain(processing);
+    expect(sent).not.toContain(done);
   });
 });

@@ -23,12 +23,17 @@ function enqueueJob(boss, jobId) {
   );
 }
 
-// Sends every job still 'queued' in the database. Covers jobs whose send
-// failed in the API. A job that is already in pg-boss may be sent twice:
-// processJob handles that (see the candidate lock).
-async function enqueueQueuedJobs(boss, db) {
+// Sends every unfinished job to the queue:
+// - 'queued': the send may have failed in the API
+// - 'processing': the worker that had it stopped, and pg-boss would give it
+//   back only after expireInSeconds
+// A job that is already in pg-boss may be sent twice. That is safe: the
+// candidate lock and the job state make the second run do nothing.
+async function enqueueUnfinishedJobs(boss, db) {
   const { rows } = await db.query(
-    `SELECT id FROM processing_jobs WHERE status = 'queued' ORDER BY id`
+    `SELECT id FROM processing_jobs
+      WHERE status IN ('queued', 'processing')
+      ORDER BY id`
   );
   for (const { id } of rows) {
     await enqueueJob(boss, id);
@@ -56,7 +61,7 @@ async function startWorker(boss, db, handle) {
 module.exports = {
   startBoss,
   enqueueJob,
-  enqueueQueuedJobs,
+  enqueueUnfinishedJobs,
   startWorker,
   QUEUE
 };
