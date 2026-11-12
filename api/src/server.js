@@ -1,15 +1,17 @@
 const { loadConfig } = require('shared/src/config');
 const { readMailConfig } = require('./mail/mailer');
 const { readAuthConfig } = require('./auth/token');
+const { readUploadConfig } = require('shared/src/upload/upload.config');
 const { createApp } = require('./app');
 
 const config = loadConfig();
 
-// Fail at startup, not at the first registration or login, when SMTP or the
-// JWT secret isn't configured.
+// Fail at startup, not at the first registration, login or upload, when SMTP,
+// the JWT secret or the upload settings aren't configured correctly.
 try {
   readMailConfig();
   readAuthConfig();
+  readUploadConfig();
 } catch (error) {
   console.error(error.message);
   process.exit(1);

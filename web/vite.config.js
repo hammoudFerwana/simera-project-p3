@@ -1,4 +1,3 @@
-
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 
@@ -8,14 +7,11 @@ export default defineConfig({
     proxy: {
       '/api': {
         target: 'http://localhost:3000',
-        changeOrigin: true,
-      },
-    },
-  },
+        changeOrigin: true
+      }
+    }
+  }
 });
-
-
-
 
 /*import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
