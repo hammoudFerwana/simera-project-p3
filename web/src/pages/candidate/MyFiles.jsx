@@ -12,7 +12,7 @@ import useUpload, {
 
 import { uploadFileSchema } from '../../validation/uploadRules';
 
-import UploadCard from '../../components/uploads/UploadCard';
+import UploadCard from '../../components/files/UploadCard';
 
 export default function MyFiles() {
   // Selected files
