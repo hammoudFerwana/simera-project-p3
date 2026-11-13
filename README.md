@@ -463,6 +463,76 @@ Run the upload tests (no database, no queue needed; sample files are in `api/tes
 npm test -- api/test/upload.test.js --verbose
 ```
 
+### Candidate file status (US-11)
+
+#### `GET /api/candidate/files`
+
+Returns all accepted CV and LinkedIn files uploaded by the currently authenticated candidate.
+
+**Authentication:** Requires a valid `access_token` cookie and a candidate account with a verified email.
+
+**Request:**
+
+- No path parameters.
+- No query parameters.
+- No request body.
+- The candidate ID is obtained from the authenticated session. Candidates can only access their own files.
+
+**Success response (`200`):**
+
+```json
+{
+  "files": [
+    {
+      "id": 12,
+      "name": "my_cv.pdf",
+      "type": "cv",
+      "uploadedAt": "2026-11-13T10:30:00.000Z",
+      "status": "Processing",
+      "message": null
+    }
+  ]
+}
+```
+
+**Response fields:**
+
+- `id`: File ID.
+- `name`: Original uploaded filename.
+- `type`: `cv` or `linkedin`.
+- `uploadedAt`: Upload timestamp.
+- `status`: User-facing processing status.
+- `message`: Failure explanation and retry instruction, or `null` when there is no failure.
+
+**Status mapping:**
+
+| Processing job status   | Candidate-facing status |
+| ----------------------- | ----------------------- |
+| `queued`                | `Processing`            |
+| `processing`            | `Processing`            |
+| `completed`             | `Completed`             |
+| `completed_with_review` | `Completed`             |
+| `failed`                | `Failed`                |
+
+Failed files include a plain-language error message and the instruction to upload an updated file to try again.
+
+**Error responses:**
+
+| Status | When                                   | Body                                                                                   |
+| ------ | -------------------------------------- | -------------------------------------------------------------------------------------- |
+| `401`  | Not logged in or invalid/expired token | `{"errors":{"auth":"Log in to continue"}}`                                             |
+| `403`  | User is not an authorized candidate    | `{"errors":{"auth":"You do not have access to this resource"}}`                        |
+| `403`  | Candidate email is not verified        | `{"errors":{"auth":"Verify your email to continue"},"reason":"verification_required"}` |
+
+**Important behavior:**
+
+- Only accepted files are returned.
+- Rejected uploads are not stored and do not appear in this list. Their rejection messages are returned directly by the upload endpoint (`POST /api/uploads/:sourceType`).
+- The frontend should refresh the list periodically while at least one file has status `Processing`.
+- Extracted data and internal human-review details are not exposed to candidates.
+
+See the shared Apidog workspace for request and response examples.
+
 ## Testing and Code Quality
 
 - **Run Tests**:
