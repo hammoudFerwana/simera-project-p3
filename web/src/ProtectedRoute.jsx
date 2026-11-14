@@ -9,7 +9,6 @@ export default function ProtectedRoute({ allowedRoles }) {
     return <div>Loading...</div>;
   }
 
-  // Supports both login cache and /auth/me response
 const user = data;
 
   if (isError || !user) {
@@ -23,5 +22,5 @@ const user = data;
     return <Navigate to={redirectPath} replace />;
   }
 
-  return <Outlet />;
+ return <Outlet context={{ user }} />;
 }
