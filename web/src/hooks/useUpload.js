@@ -1,5 +1,8 @@
 
-import { useMutation } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query";
 
 import {
   uploadCvApi,
@@ -14,18 +17,29 @@ export const getUploadErrorMessage = (error) => {
   );
 };
 
+const uploadFunctions = {
+  cv: uploadCvApi,
+  linkedin: uploadLinkedInApi,
+};
+
 const useUpload = (type) => {
+  const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: (file) => {
-      if (type === "cv") {
-        return uploadCvApi(file);
+      const uploadFile = uploadFunctions[type];
+
+      if (!uploadFile) {
+        throw new Error("Invalid upload type");
       }
 
-      if (type === "linkedin") {
-        return uploadLinkedInApi(file);
-      }
+      return uploadFile(file);
+    },
 
-      throw new Error("Invalid upload type");
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["candidateFiles"],
+      });
     },
   });
 };
