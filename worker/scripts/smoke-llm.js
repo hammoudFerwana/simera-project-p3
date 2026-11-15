@@ -43,6 +43,15 @@ function collapseWhitespace(s) {
 async function main() {
   const absPath = path.resolve(filePath);
   const ext = path.extname(absPath).toLowerCase();
+  const fileBuffer = fs.readFileSync(absPath);
+
+  const { MIME_TYPES } = require('../../shared/src/upload/file-types');
+  const mimeTypeMap = {
+    '.pdf': MIME_TYPES.pdf,
+    '.docx': MIME_TYPES.docx,
+    '.md': MIME_TYPES.markdown
+  };
+  const mimeType = mimeTypeMap[ext];
 
   let text;
   let links = [];
@@ -56,7 +65,11 @@ async function main() {
   }
 
   if (extractFn && typeof extractFn.extract === 'function') {
-    const result = await extractFn.extract(absPath);
+    if (!mimeType) {
+      console.error(`Unsupported extension: ${ext}`);
+      process.exit(1);
+    }
+    const result = await extractFn.extract(fileBuffer, mimeType);
     text = result.text;
     links = result.links || [];
   } else {
@@ -67,7 +80,7 @@ async function main() {
       );
       process.exit(1);
     }
-    text = fs.readFileSync(absPath, 'utf-8');
+    text = fileBuffer.toString('utf-8');
   }
 
   const client = createLlmClientFromEnv();
