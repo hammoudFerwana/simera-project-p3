@@ -1,4 +1,6 @@
-const { createValidateWithCodeStep } = require('../src/steps/validate-with-code');
+const {
+  createValidateWithCodeStep
+} = require('../src/steps/validate-with-code');
 
 const v = (value, evidence = String(value), confidence = 0.9) => ({
   value,
@@ -61,7 +63,10 @@ function buildFullExtraction() {
       {
         name: v('JavaScript'),
         proficiency_level: empty(),
-        stated_duration: v({ amount: 3, unit: 'years' }, '3 years of JavaScript')
+        stated_duration: v(
+          { amount: 3, unit: 'years' },
+          '3 years of JavaScript'
+        )
       }
     ],
     languages: [
@@ -137,7 +142,7 @@ describe('validateWithCode step', () => {
     const sourceText = [
       'Jane Doe Backend Developer Software Engineer Amman Jordan 00962 79 123 4567',
       'Acme Mar 2021 Present Mar 2021 - Present Full-time Remote Node.js, PostgreSQL acme.com',
-      'University of Jordan Bachelor\'s BSc Computer Science Computer Science 2016 2020 2016 - 2020',
+      "University of Jordan Bachelor's BSc Computer Science Computer Science 2016 2020 2016 - 2020",
       'JavaScript 3 years of JavaScript',
       'English English (fluent)',
       'GitHub github.com/sam',
@@ -162,7 +167,9 @@ describe('validateWithCode step', () => {
 
     // Auto-fixes applied to values
     expect(result.extraction.candidate.phone.value).toBe('+962791234567');
-    expect(result.extraction.candidate.phone.evidence).toBe('00962 79 123 4567');
+    expect(result.extraction.candidate.phone.evidence).toBe(
+      '00962 79 123 4567'
+    );
     expect(result.extraction.candidate.phone.confidence).toBe(0.9);
 
     expect(result.extraction.candidate.country_code.value).toBe('JO');
@@ -213,7 +220,7 @@ describe('validateWithCode step', () => {
     const sourceText = [
       'Jane Doe Backend Developer Software Engineer Amman Atlantis +962 12',
       'Acme Mar 2021 Present Mar 2021 - Present Full-time Remote Node.js, PostgreSQL javascript:alert(1)',
-      'University of Jordan Bachelor\'s BSc Computer Science Computer Science 2016 2020 2016 - 2020',
+      "University of Jordan Bachelor's BSc Computer Science Computer Science 2016 2020 2016 - 2020",
       'JavaScript 3 years of JavaScript',
       'xx English (fluent)',
       'GitHub not a url',
@@ -410,5 +417,326 @@ describe('validateWithCode step', () => {
     const resNulls = await step(ctxNulls);
     expect(resNulls.failedChecks).toEqual([]);
     expect(logSpy).not.toHaveBeenCalled();
+  });
+
+  test('LLM duration 20 for 2020-01 to 2021-12 -> replaced by 24 (D2)', async () => {
+    const fixedNow = new Date('2026-11-15T10:00:00Z');
+    const step = createValidateWithCodeStep({
+      now: () => fixedNow,
+      log: jest.fn()
+    });
+    const extraction = buildFullExtraction();
+    extraction.work_experience = [
+      {
+        job_title: v('Engineer'),
+        company_name: v('Acme'),
+        start_date: v('2020-01', 'Jan 2020'),
+        end_date: v('2021-12', 'Dec 2021'),
+        is_current: v(false, 'no'),
+        duration_months: v(20, 'Jan 2020 - Dec 2021', 0.8),
+        location: empty(),
+        employment_type: empty(),
+        work_mode: empty(),
+        description: empty(),
+        responsibilities: empty(),
+        achievements: empty(),
+        skills_used: empty(),
+        company_url: empty()
+      }
+    ];
+
+    const ctx = {
+      jobId: 'job-d2',
+      text: 'Jan 2020 Dec 2021 Jan 2020 - Dec 2021 Engineer Acme no',
+      links: [],
+      extraction
+    };
+
+    const res = await step(ctx);
+    expect(res.extraction.work_experience[0].duration_months.value).toBe(24);
+    expect(res.extraction.work_experience[0].duration_months.evidence).toBe(
+      'Jan 2020 - Dec 2021'
+    );
+    expect(res.extraction.work_experience[0].duration_months.confidence).toBe(
+      0.8
+    );
+  });
+
+  test('LLM duration null for "2021" to "2023" -> 36, evidence and confidence taken from start_date', async () => {
+    const fixedNow = new Date('2026-11-15T10:00:00Z');
+    const step = createValidateWithCodeStep({
+      now: () => fixedNow,
+      log: jest.fn()
+    });
+    const extraction = buildFullExtraction();
+    extraction.work_experience = [
+      {
+        job_title: v('Engineer'),
+        company_name: v('Acme'),
+        start_date: v('2021', '2021', 0.95),
+        end_date: v('2023', '2023', 0.95),
+        is_current: v(false, 'no'),
+        duration_months: empty(),
+        location: empty(),
+        employment_type: empty(),
+        work_mode: empty(),
+        description: empty(),
+        responsibilities: empty(),
+        achievements: empty(),
+        skills_used: empty(),
+        company_url: empty()
+      }
+    ];
+
+    const ctx = {
+      jobId: 'job-null-duration',
+      text: '2021 2023 Engineer Acme no',
+      links: [],
+      extraction
+    };
+
+    const res = await step(ctx);
+    expect(res.extraction.work_experience[0].duration_months.value).toBe(36);
+    expect(res.extraction.work_experience[0].duration_months.evidence).toBe(
+      '2021'
+    );
+    expect(res.extraction.work_experience[0].duration_months.confidence).toBe(
+      0.95
+    );
+  });
+
+  test('an ongoing job started 2025-01 -> 23 with the fixed now (card AC5)', async () => {
+    const fixedNow = new Date('2026-11-15T10:00:00Z');
+    const step = createValidateWithCodeStep({
+      now: () => fixedNow,
+      log: jest.fn()
+    });
+    const extraction = buildFullExtraction();
+    extraction.work_experience = [
+      {
+        job_title: v('Engineer'),
+        company_name: v('Acme'),
+        start_date: v('2025-01', 'Jan 2025', 0.9),
+        end_date: empty(),
+        is_current: v(true, 'Present'),
+        duration_months: empty(),
+        location: empty(),
+        employment_type: empty(),
+        work_mode: empty(),
+        description: empty(),
+        responsibilities: empty(),
+        achievements: empty(),
+        skills_used: empty(),
+        company_url: empty()
+      }
+    ];
+
+    const ctx = {
+      jobId: 'job-ongoing',
+      text: 'Jan 2025 Present Engineer Acme',
+      links: [],
+      extraction
+    };
+
+    const res = await step(ctx);
+    expect(res.extraction.work_experience[0].duration_months.value).toBe(23);
+    expect(res.extraction.work_experience[0].duration_months.evidence).toBe(
+      'Jan 2025'
+    );
+    expect(res.extraction.work_experience[0].duration_months.confidence).toBe(
+      0.9
+    );
+  });
+
+  test('a job with month 13 keeps its LLM duration and gets the invalid_date entry', async () => {
+    const fixedNow = new Date('2026-11-15T10:00:00Z');
+    const step = createValidateWithCodeStep({
+      now: () => fixedNow,
+      log: jest.fn()
+    });
+    const extraction = buildFullExtraction();
+    extraction.work_experience = [
+      {
+        job_title: v('Engineer'),
+        company_name: v('Acme'),
+        start_date: v('2021-13', '2021-13', 0.9),
+        end_date: v('2022-05', 'May 2022', 0.9),
+        is_current: v(false, 'no'),
+        duration_months: v(15, '15 months', 0.85),
+        location: empty(),
+        employment_type: empty(),
+        work_mode: empty(),
+        description: empty(),
+        responsibilities: empty(),
+        achievements: empty(),
+        skills_used: empty(),
+        company_url: empty()
+      }
+    ];
+
+    const ctx = {
+      jobId: 'job-month-13',
+      text: '2021-13 May 2022 no 15 months Engineer Acme',
+      links: [],
+      extraction
+    };
+
+    const res = await step(ctx);
+    expect(res.extraction.work_experience[0].duration_months.value).toBe(15);
+    expect(res.failedChecks).toEqual(
+      expect.arrayContaining([
+        {
+          section: 'work_experience',
+          index: 0,
+          field: 'start_date',
+          reason: 'invalid_date'
+        }
+      ])
+    );
+  });
+
+  test('date entries are logged with jobId, section, index, field, reason only, never the value or the evidence', async () => {
+    const fixedNow = new Date('2026-11-15T10:00:00Z');
+    const loggedEntries = [];
+    const logSpy = jest.fn((entry) => loggedEntries.push(entry));
+    const step = createValidateWithCodeStep({
+      log: logSpy,
+      now: () => fixedNow
+    });
+
+    const extraction = buildFullExtraction();
+    extraction.work_experience = [
+      {
+        job_title: v('Engineer'),
+        company_name: v('Acme'),
+        start_date: v('2022-05', 'May 2022'),
+        end_date: v('2021-03', 'Mar 2021'),
+        is_current: v(false, 'no'),
+        duration_months: empty(),
+        location: empty(),
+        employment_type: empty(),
+        work_mode: empty(),
+        description: empty(),
+        responsibilities: empty(),
+        achievements: empty(),
+        skills_used: empty(),
+        company_url: empty()
+      }
+    ];
+
+    const ctx = {
+      jobId: 'job-date-log',
+      text: 'Engineer Acme May 2022 Mar 2021 no',
+      links: [],
+      extraction
+    };
+
+    await step(ctx);
+
+    const dateEntry = loggedEntries.find(
+      (e) => e.section === 'work_experience' && e.field === 'end_date'
+    );
+    expect(dateEntry).toBeDefined();
+    expect(dateEntry).toEqual({
+      jobId: 'job-date-log',
+      section: 'work_experience',
+      index: 0,
+      field: 'end_date',
+      reason: 'start_after_end'
+    });
+    expect(Object.keys(dateEntry).sort()).toEqual(
+      ['field', 'index', 'jobId', 'reason', 'section'].sort()
+    );
+    expect(dateEntry).not.toHaveProperty('value');
+    expect(dateEntry).not.toHaveProperty('evidence');
+  });
+
+  test('AC7: no experience total appears in ctx.extraction or in any other ctx key', async () => {
+    const fixedNow = new Date('2026-11-15T10:00:00Z');
+    const step = createValidateWithCodeStep({
+      now: () => fixedNow,
+      log: jest.fn()
+    });
+    const extraction = buildFullExtraction();
+    extraction.work_experience = [
+      {
+        job_title: v('Dev 1'),
+        company_name: v('Acme'),
+        start_date: v('2020-01', 'Jan 2020'),
+        end_date: v('2021-12', 'Dec 2021'),
+        is_current: v(false, 'no'),
+        duration_months: empty(),
+        location: empty(),
+        employment_type: empty(),
+        work_mode: empty(),
+        description: empty(),
+        responsibilities: empty(),
+        achievements: empty(),
+        skills_used: empty(),
+        company_url: empty()
+      },
+      {
+        job_title: v('Dev 2'),
+        company_name: v('Beta'),
+        start_date: v('2021-01', 'Jan 2021'),
+        end_date: v('2022-12', 'Dec 2022'),
+        is_current: v(false, 'no'),
+        duration_months: empty(),
+        location: empty(),
+        employment_type: empty(),
+        work_mode: empty(),
+        description: empty(),
+        responsibilities: empty(),
+        achievements: empty(),
+        skills_used: empty(),
+        company_url: empty()
+      }
+    ];
+
+    const ctx = {
+      jobId: 'job-ac7',
+      text: 'Dev 1 Acme Jan 2020 Dec 2021 no Dev 2 Beta Jan 2021 Dec 2022 no',
+      links: [],
+      extraction
+    };
+
+    const res = await step(ctx);
+
+    const allowedCtxKeys = [
+      'jobId',
+      'text',
+      'links',
+      'extraction',
+      'failedChecks'
+    ];
+    for (const key of Object.keys(res)) {
+      expect(allowedCtxKeys).toContain(key);
+    }
+    expect(res).not.toHaveProperty('total_experience');
+    expect(res).not.toHaveProperty('total_months');
+    expect(res).not.toHaveProperty('totalMonths');
+    expect(res).not.toHaveProperty('experience_months');
+
+    const allowedExtractionKeys = [
+      'meta',
+      'candidate',
+      'work_experience',
+      'education',
+      'skills',
+      'languages',
+      'links',
+      'certifications',
+      'projects',
+      'awards',
+      'publications',
+      'volunteering'
+    ];
+    for (const key of Object.keys(res.extraction)) {
+      expect(allowedExtractionKeys).toContain(key);
+    }
+    expect(res.extraction).not.toHaveProperty('total_experience');
+    expect(res.extraction).not.toHaveProperty('total_months');
+    expect(res.extraction).not.toHaveProperty('totalMonths');
+    expect(res.extraction).not.toHaveProperty('experience_months');
   });
 });

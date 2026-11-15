@@ -61,6 +61,16 @@ Normalizes raw extracted skill names to canonical names from the universal skill
   - `candidate.country_code`: normalized to ISO 3166-1 alpha-2 via `i18n-iso-countries`. Invalid codes fail with `invalid_country`.
   - `languages[].language`: normalized to its English name via `Intl.DisplayNames`. Invalid languages fail with `invalid_language`.
   - URLs (`links[].url`, `work_experience[].company_url`, `certifications[].credential_url`, `projects[].project_url`, `publications[].url`): verified with http/https and domain dot checks, prepending `https://` for bare domains. Invalid URLs fail with `invalid_url`.
+- Date validation (US-14):
+  - Real date checks (`isRealDate`): verifies calendar existence (month 1-12, valid days in month with leap years) and year range (`minYear = 1950`, `maxYear = year of now + 10`). Failures record `invalid_date` or `year_out_of_range`.
+  - Future date check: applies to start dates and single dates (`work_experience.start_date`, `education.start_date`, `volunteering.start_date`, `projects.start_date`, `certifications.issue_date`, `awards.award_date`, `publications.publication_date`) at month precision. Dates later than the month of `now` fail with `future_date`. End dates and certificate expiration dates may be in the future.
+  - Chronological ordering: start dates cannot be later than end dates (or issue date after expiration date for certifications), failing with `start_after_end` on the end date / expiration date field.
+  - Consistency: `is_current = true` with a non-null `end_date` in `work_experience`, `education`, or `volunteering` fails with `current_with_end_date` on `end_date`.
+- Experience duration recalculation (US-14):
+  - Recalculates `duration_months` for every `work_experience` item using `jobMonths` based on inclusive months at month precision. Year-only start dates count from January; year-only end dates count to December (Open Decision 20). Ongoing jobs count through the current month of `now`.
+  - If the code calculation differs from the LLM value, the code's value replaces it in `ctx.extraction` (Open Decision 21). When the duration changes and `duration_months.evidence` is null, evidence and confidence are copied from `start_date`.
+  - Items with failed date checks on `start_date` or `end_date` keep their existing duration without recalculation.
+  - Changed durations are not failed checks and are not logged. No total experience is ever calculated or stored in `ctx` or the database (Open Decision 27).
 - Safe failure handling: failed checks never change or drop values. Each failure records `{ section, index, field, reason }` in `ctx.failedChecks` and is logged with `jobId`, `section`, `index`, `field`, and `reason` only (never the value or evidence).
 
 ### Check email step (US-07)

@@ -277,3 +277,31 @@ const { content, modelVersion } = await client.chatJson(messages);
 - Classified errors: HTTP 408, 429, 5xx and network errors throw `TemporaryError`; 4xx throws `PermanentError`.
 - Error messages never expose request or response body content.
 - Reads `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`, and optional `LLM_TIMEOUT_MS`.
+
+## Experience months (US-14)
+
+`shared/src/experience.js` provides pure functions for date parsing and experience month calculations. It is used during extraction validation (worker step 5) and by the API on read (e.g. candidate profile in US-12).
+
+```js
+const {
+  parseDate,
+  isRealDate,
+  toMonthIndex,
+  jobMonths,
+  calculateExperienceMonths
+} = require('shared/src/experience');
+
+// Calculate total experience across jobs, merging overlapping intervals:
+const { totalMonths, perJob } = calculateExperienceMonths(jobs, {
+  now: () => new Date()
+});
+```
+
+### Key behaviors
+
+- `parseDate(s)`: parses `"YYYY"`, `"YYYY-MM"`, or `"YYYY-MM-DD"` into `{ year, month, day }` (or `null`).
+- `isRealDate(parts, { minYear, maxYear })`: verifies calendar validity (1-12 month, valid days with leap years) and year range.
+- `toMonthIndex(s, side)`: continuous month index `year * 12 + (month - 1)`. Year-only start dates count from January (`'start'`); year-only end dates count through December (`'end'`).
+- `jobMonths(job, { now })`: counts inclusive months for a single job or `null` if unparseable/invalid. Ongoing items end at the month of `now`.
+- `calculateExperienceMonths(jobs, { now })`: sorts valid intervals, merges overlapping intervals, and returns `{ totalMonths, perJob }`. Never mutates the input array.
+- Total experience is never stored in the database or extraction schema; it is calculated on read.
