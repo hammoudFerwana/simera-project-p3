@@ -463,6 +463,129 @@ Run the upload tests (no database, no queue needed; sample files are in `api/tes
 npm test -- api/test/upload.test.js --verbose
 ```
 
+## Transactional Storage and Provenance (US-10)
+
+After extraction and code validation, the worker maps the validated extraction into the database structure and stores it in PostgreSQL using a transactional storage process.
+
+**Storage pipeline:**
+
+1. **Mapping (`shared/src/mapper.js`)**
+
+   `mapExtractionToStorage()` converts the validated extraction into three groups:
+   - Processing metadata, such as document language and extraction warnings.
+   - Candidate profile fields.
+   - List items, including work experience, education, languages, links, certifications, projects, awards, publications, and volunteering.
+
+   Each extracted field retains its `value`, `confidence`, and `evidence` wrapper until the storage layer processes it.
+
+   `duration_months` is not stored because experience duration is calculated when needed. Skills are handled separately in US-13.
+
+2. **Deduplication and normalization (`shared/src/deduplication.js`)**
+
+   List items use a deterministic SHA-256 deduplication key to identify matching records.
+
+   Before generating the key, values are normalized:
+   - Unicode is normalized using NFKC.
+   - Leading and trailing whitespace is removed.
+   - Text is converted to lowercase.
+   - Consecutive whitespace is collapsed into a single space.
+   - URLs are lowercased and trailing slashes are removed.
+   - Legal suffixes are stripped from company names when generating work-experience keys.
+
+   These rules make equivalent values produce consistent keys. Original extracted values are preserved for storage; normalization is used for matching.
+
+3. **Transactional storage (`shared/src/storage-writer.js`)**
+
+   `writeExtraction()` performs the database writes inside a single transaction:
+   - Verifies ownership through the user, candidate profile, uploaded file, and processing job relationships.
+   - Updates processing metadata in `processing_jobs`.
+   - Fills candidate profile columns only when their existing database values are `NULL`.
+   - Inserts new list items or updates matching items using their deduplication keys.
+   - Uses `COALESCE` so existing non-null item values are not overwritten by incoming `NULL` values.
+   - Rolls back the transaction if any storage operation fails.
+
+4. **Two-level provenance**
+
+   The storage layer preserves the origin and supporting information for extracted values:
+   - `data_provenance` records the provenance entry for a field, including its resolution method. In US-10, new entries use `no_conflict` as the resolution method.
+   - `data_provenance_sources` links that entry to the processing job and stores the source value, confidence, and evidence.
+
+   Source records are associated with their provenance entry and processing job, allowing the system to trace stored data back to the file it came from.
+
+**Worker integration:** The store step in `worker/src/steps/index.js` runs after extraction and code validation. It calls `mapExtractionToStorage()` and then `writeExtraction()` with the job's `userId`, `jobId`, and mapped data. The step is marked complete only after storage succeeds.
+
+**Scope:** US-10 implements transactional persistence, deduplication, and provenance for the first file. Comparing new extraction values against previously stored values and applying latest-value or human-review rules belong to US-15, US-16, and US-17.
+
+### Candidate file status (US-11)
+
+#### `GET /api/candidate/files`
+
+Returns all accepted CV and LinkedIn files uploaded by the currently authenticated candidate.
+
+**Authentication:** Requires a valid `access_token` cookie and a candidate account with a verified email.
+
+**Request:**
+
+- No path parameters.
+- No query parameters.
+- No request body.
+- The candidate ID is obtained from the authenticated session. Candidates can only access their own files.
+
+**Success response (`200`):**
+
+```json
+{
+  "files": [
+    {
+      "id": 12,
+      "name": "my_cv.pdf",
+      "type": "cv",
+      "uploadedAt": "2026-11-13T10:30:00.000Z",
+      "status": "Processing",
+      "message": null
+    }
+  ]
+}
+```
+
+**Response fields:**
+
+- `id`: File ID.
+- `name`: Original uploaded filename.
+- `type`: `cv` or `linkedin`.
+- `uploadedAt`: Upload timestamp.
+- `status`: User-facing processing status.
+- `message`: Failure explanation and retry instruction, or `null` when there is no failure.
+
+**Status mapping:**
+
+| Processing job status   | Candidate-facing status |
+| ----------------------- | ----------------------- |
+| `queued`                | `Processing`            |
+| `processing`            | `Processing`            |
+| `completed`             | `Completed`             |
+| `completed_with_review` | `Completed`             |
+| `failed`                | `Failed`                |
+
+Failed files include a plain-language error message and the instruction to upload an updated file to try again.
+
+**Error responses:**
+
+| Status | When                                   | Body                                                                                   |
+| ------ | -------------------------------------- | -------------------------------------------------------------------------------------- |
+| `401`  | Not logged in or invalid/expired token | `{"errors":{"auth":"Log in to continue"}}`                                             |
+| `403`  | User is not an authorized candidate    | `{"errors":{"auth":"You do not have access to this resource"}}`                        |
+| `403`  | Candidate email is not verified        | `{"errors":{"auth":"Verify your email to continue"},"reason":"verification_required"}` |
+
+**Important behavior:**
+
+- Only accepted files are returned.
+- Rejected uploads are not stored and do not appear in this list. Their rejection messages are returned directly by the upload endpoint (`POST /api/uploads/:sourceType`).
+- The frontend should refresh the list periodically while at least one file has status `Processing`.
+- Extracted data and internal human-review details are not exposed to candidates.
+
+See the shared Apidog workspace for request and response examples.
+
 ## Testing and Code Quality
 
 - **Run Tests**:

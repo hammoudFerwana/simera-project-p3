@@ -4,7 +4,7 @@ const { readUploadConfig } = require('shared/src/upload/upload.config');
 const { createLocalStorage } = require('shared/src/upload/storage');
 const { createAuthRouter } = require('./auth/auth.routes');
 const { createUploadsRouter } = require('./upload/upload.routes');
-
+const { createCandidateRouter } = require('./candidate/candidate.routes');
 // Loaded on first use so the app (and /health) starts without a database,
 // an SMTP server or the queue.
 const defaultGetDb = () => require('shared/src/database');
@@ -72,6 +72,7 @@ function createApp({
     '/api/uploads',
     createUploadsRouter({ getDb, getStorage, enqueueJob, getUploadConfig })
   );
+  app.use('/api/candidate', createCandidateRouter({ getDb }));
 
   // eslint-disable-next-line no-unused-vars
   app.use((error, req, res, next) => {

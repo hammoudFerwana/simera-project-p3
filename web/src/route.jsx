@@ -13,6 +13,9 @@ import ProtectedRoute from "../src/ProtectedRoute";
 import CandidateDashboard from "./pages/candidate/CandidateDashboard";
 import AdminDashboard from "./pages/admin/AdminDashboard";
 
+import MyFiles from "./pages/candidate/MyFiles";
+import Candidates from "./pages/admin/Candidates";
+import ReviewQueue from "./pages/admin/ReviewQueue";
 const router = createBrowserRouter([
   // Authentication
   {
@@ -36,6 +39,10 @@ const router = createBrowserRouter([
             path: "/candidate",
             element: <CandidateDashboard />,
           },
+           {
+            path: "/candidate/my-files",
+            element: <MyFiles />,
+          },
         ],
       },
     ],
@@ -51,6 +58,14 @@ const router = createBrowserRouter([
           {
             path: "/admin",
             element: <AdminDashboard />,
+          },
+           {
+            path: "/admin/candidates",
+            element: <Candidates />,
+          },
+           {
+            path: "/admin/review-queue",
+            element: <ReviewQueue />,
           },
         ],
       },
