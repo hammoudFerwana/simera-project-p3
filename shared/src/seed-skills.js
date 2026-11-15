@@ -159,8 +159,8 @@ const skills = [
   'Technical Documentation'
 ];
 
-async function seedSkills() {
-  const client = await pool.connect();
+async function seedSkills({ dbPool = pool } = {}) {
+  const client = await dbPool.connect();
 
   try {
     await client.query('BEGIN');
@@ -197,11 +197,15 @@ async function seedSkills() {
   }
 }
 
-seedSkills()
-  .catch((error) => {
-    console.error('Skills seeding failed:', error.message);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await pool.end();
-  });
+if (require.main === module) {
+  seedSkills()
+    .catch((error) => {
+      console.error('Skills seeding failed:', error.message);
+      process.exitCode = 1;
+    })
+    .finally(async () => {
+      await pool.end();
+    });
+}
+
+module.exports = { seedSkills, skills };

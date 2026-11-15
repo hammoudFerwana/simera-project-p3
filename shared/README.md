@@ -176,6 +176,9 @@ The email is not part of the contract: the worker finds emails in the extracted 
 
 A skill that can't be matched to the universal list is stored in `unknown_skills.skill_name` instead.
 
+Matched skills are saved in `candidate_skills` with `ON CONFLICT (candidate_id, skill_id) DO UPDATE` to fill only empty fields (`COALESCE`). Provenance is recorded in `data_provenance` under `item_type = 'candidate_skills'` for `skill_id`, `proficiency_level`, and `months_of_experience`.
+Unknown skills are saved in `unknown_skills` (`status = 'pending'`, `source_file_id`), using `WHERE NOT EXISTS` on candidate, source file, and lowercase skill name to ensure idempotency across job retries.
+
 #### languages[] → `candidate_languages` (item_type `candidate_languages`)
 
 | Schema field        | Type                                    | Column              | Notes                               |
@@ -251,3 +254,54 @@ Core tables have no confidence or evidence columns. For each field, the wrapper'
 - approved value: `data_provenance` (how and when it was approved), plus a `data_provenance_sources` row (`source_value`, `confidence`, `evidence`) pointing to the processing job of the file the current value came from. When a newer file updates the value, the source rows are updated to point to that file;
 - difference with the stored value (automatic or sent to review): `conflict_options` (`value`, `confidence`, `evidence`), with one option for the stored value and one for each new value;
 - unknown skill: `unknown_skills` (`skill_name`, `confidence`, `evidence`).
+
+## LLM Client (US-08)
+
+`shared/src/llm/client.js` provides an OpenAI-compatible Chat Completions client using Node 22 native `fetch`.
+
+```js
+const {
+  createLlmClient,
+  createLlmClientFromEnv
+} = require('shared/src/llm/client');
+
+const client = createLlmClientFromEnv();
+const { content, modelVersion } = await client.chatJson(messages);
+```
+
+### Features
+
+- Generic OpenAI-compatible Chat Completions endpoint (`POST {baseUrl}/chat/completions`).
+- Requests `temperature: 0` and `response_format: { type: 'json_object' }`.
+- Configurable timeout via `AbortSignal.timeout(timeoutMs)` (default 90,000 ms).
+- Classified errors: HTTP 408, 429, 5xx and network errors throw `TemporaryError`; 4xx throws `PermanentError`.
+- Error messages never expose request or response body content.
+- Reads `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`, and optional `LLM_TIMEOUT_MS`.
+
+## Experience months (US-14)
+
+`shared/src/experience.js` provides pure functions for date parsing and experience month calculations. It is used during extraction validation (worker step 5) and by the API on read (e.g. candidate profile in US-12).
+
+```js
+const {
+  parseDate,
+  isRealDate,
+  toMonthIndex,
+  jobMonths,
+  calculateExperienceMonths
+} = require('shared/src/experience');
+
+// Calculate total experience across jobs, merging overlapping intervals:
+const { totalMonths, perJob } = calculateExperienceMonths(jobs, {
+  now: () => new Date()
+});
+```
+
+### Key behaviors
+
+- `parseDate(s)`: parses `"YYYY"`, `"YYYY-MM"`, or `"YYYY-MM-DD"` into `{ year, month, day }` (or `null`).
+- `isRealDate(parts, { minYear, maxYear })`: verifies calendar validity (1-12 month, valid days with leap years) and year range.
+- `toMonthIndex(s, side)`: continuous month index `year * 12 + (month - 1)`. Year-only start dates count from January (`'start'`); year-only end dates count through December (`'end'`).
+- `jobMonths(job, { now })`: counts inclusive months for a single job or `null` if unparseable/invalid. Ongoing items end at the month of `now`.
+- `calculateExperienceMonths(jobs, { now })`: sorts valid intervals, merges overlapping intervals, and returns `{ totalMonths, perJob }`. Never mutates the input array.
+- Total experience is never stored in the database or extraction schema; it is calculated on read.

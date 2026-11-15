@@ -463,6 +463,59 @@ Run the upload tests (no database, no queue needed; sample files are in `api/tes
 npm test -- api/test/upload.test.js --verbose
 ```
 
+## Transactional Storage and Provenance (US-10)
+
+After extraction and code validation, the worker maps the validated extraction into the database structure and stores it in PostgreSQL using a transactional storage process.
+
+**Storage pipeline:**
+
+1. **Mapping (`shared/src/mapper.js`)**
+
+   `mapExtractionToStorage()` converts the validated extraction into three groups:
+   - Processing metadata, such as document language and extraction warnings.
+   - Candidate profile fields.
+   - List items, including work experience, education, languages, links, certifications, projects, awards, publications, and volunteering.
+
+   Each extracted field retains its `value`, `confidence`, and `evidence` wrapper until the storage layer processes it.
+
+   `duration_months` is not stored because experience duration is calculated when needed. Skills are handled separately in US-13.
+
+2. **Deduplication and normalization (`shared/src/deduplication.js`)**
+
+   List items use a deterministic SHA-256 deduplication key to identify matching records.
+
+   Before generating the key, values are normalized:
+   - Unicode is normalized using NFKC.
+   - Leading and trailing whitespace is removed.
+   - Text is converted to lowercase.
+   - Consecutive whitespace is collapsed into a single space.
+   - URLs are lowercased and trailing slashes are removed.
+   - Legal suffixes are stripped from company names when generating work-experience keys.
+
+   These rules make equivalent values produce consistent keys. Original extracted values are preserved for storage; normalization is used for matching.
+
+3. **Transactional storage (`shared/src/storage-writer.js`)**
+
+   `writeExtraction()` performs the database writes inside a single transaction:
+   - Verifies ownership through the user, candidate profile, uploaded file, and processing job relationships.
+   - Updates processing metadata in `processing_jobs`.
+   - Fills candidate profile columns only when their existing database values are `NULL`.
+   - Inserts new list items or updates matching items using their deduplication keys.
+   - Uses `COALESCE` so existing non-null item values are not overwritten by incoming `NULL` values.
+   - Rolls back the transaction if any storage operation fails.
+
+4. **Two-level provenance**
+
+   The storage layer preserves the origin and supporting information for extracted values:
+   - `data_provenance` records the provenance entry for a field, including its resolution method. In US-10, new entries use `no_conflict` as the resolution method.
+   - `data_provenance_sources` links that entry to the processing job and stores the source value, confidence, and evidence.
+
+   Source records are associated with their provenance entry and processing job, allowing the system to trace stored data back to the file it came from.
+
+**Worker integration:** The store step in `worker/src/steps/index.js` runs after extraction and code validation. It calls `mapExtractionToStorage()` and then `writeExtraction()` with the job's `userId`, `jobId`, and mapped data. The step is marked complete only after storage succeeds.
+
+**Scope:** US-10 implements transactional persistence, deduplication, and provenance for the first file. Comparing new extraction values against previously stored values and applying latest-value or human-review rules belong to US-15, US-16, and US-17.
+
 ### Candidate file status (US-11)
 
 #### `GET /api/candidate/files`
@@ -532,6 +585,221 @@ Failed files include a plain-language error message and the instruction to uploa
 - Extracted data and internal human-review details are not exposed to candidates.
 
 See the shared Apidog workspace for request and response examples.
+
+### Admin candidates (US-12)
+
+Endpoints under `/api/admin` provide administrative capabilities to list, search, filter, and inspect candidate profiles and data provenance.
+
+#### `GET /api/admin/candidates`
+
+Returns a paginated list of candidate profiles with optional search, processing status filter, and pending review filter.
+
+**Authentication:** Requires a valid `access_token` cookie and an `admin` role.
+
+**Request:**
+
+- No path parameters.
+- Query parameters:
+  - `page` (optional): Positive integer (default `1`).
+  - `pageSize` (optional): Positive integer up to `100` (default `20`).
+  - `status` (optional): Filter by latest processing job status (`queued`, `processing`, `completed`, `completed_with_review`, `failed`).
+  - `hasPendingReview` (optional): `true` or `false`. When `true`, returns only candidates with at least one pending human review.
+  - `search` (optional): Case-insensitive substring match on email, first name, last name, or full name (max 100 characters).
+- No request body.
+
+**Success response (`200`):**
+
+```json
+{
+  "items": [
+    {
+      "id": 1,
+      "email": "jane@example.com",
+      "firstName": "Jane",
+      "lastName": "Doe",
+      "latestJobStatus": "completed",
+      "pendingReviewCount": 0,
+      "fileCount": 2,
+      "createdAt": "2026-11-15T10:00:00.000Z"
+    }
+  ],
+  "page": 1,
+  "pageSize": 20,
+  "total": 1
+}
+```
+
+**Response fields:**
+
+- `items`: Array of candidate summary objects.
+  - `id`: Candidate profile ID.
+  - `email`: User account email.
+  - `firstName`: Candidate first name.
+  - `lastName`: Candidate last name.
+  - `latestJobStatus`: Status of the candidate's latest processing job, or `null` if no job exists.
+  - `pendingReviewCount`: Number of non-completed human reviews for the candidate.
+  - `fileCount`: Total number of uploaded files for the candidate.
+  - `createdAt`: Profile creation timestamp.
+- `page`: Current page number.
+- `pageSize`: Number of items per page.
+- `total`: Total count of matching candidates.
+
+**Error responses:**
+
+| Status | When                                             | Body                                                            |
+| ------ | ------------------------------------------------ | --------------------------------------------------------------- |
+| `400`  | Invalid query parameter (`status`, `page`, etc.) | `{"errors":{"<field>":"<validation error message>"}}`           |
+| `401`  | Not logged in or invalid/expired token           | `{"errors":{"auth":"Log in to continue"}}`                      |
+| `403`  | User does not have admin role                    | `{"errors":{"auth":"You do not have access to this resource"}}` |
+| `500`  | Unexpected server error                          | `{"errors":{"server":"Something went wrong"}}`                  |
+
+#### `GET /api/admin/candidates/:id`
+
+Returns a candidate's complete profile, section items with per-field provenance and review markers, experience summary, and uploaded files.
+
+**Authentication:** Requires a valid `access_token` cookie and an `admin` role.
+
+**Request:**
+
+- Path parameters:
+  - `id`: Positive integer (candidate profile ID).
+- No query parameters.
+- No request body.
+
+**Success response (`200`):**
+
+```json
+{
+  "candidate": {
+    "id": 1,
+    "email": "jane@example.com",
+    "createdAt": "2026-11-15T10:00:00.000Z"
+  },
+  "profile": {
+    "first_name": {
+      "value": "Jane",
+      "resolutionMethod": "latest_value",
+      "approvedAt": "2026-11-15T10:05:00.000Z",
+      "humanReviewed": false,
+      "manualValue": false,
+      "reviewId": null,
+      "pendingReview": false,
+      "sources": [
+        {
+          "jobId": 10,
+          "fileId": 5,
+          "fileType": "cv",
+          "fileName": "cv.pdf",
+          "uploadedAt": "2026-11-15T10:00:00.000Z",
+          "value": "Jane",
+          "confidence": 0.95,
+          "evidence": "Name: Jane Doe"
+        }
+      ]
+    },
+    "last_name": { "value": "Doe", "...": "..." },
+    "headline": { "...": "..." },
+    "summary": { "...": "..." },
+    "phone": { "...": "..." },
+    "industry": { "...": "..." },
+    "profession": { "...": "..." },
+    "city": { "...": "..." },
+    "country_code": { "...": "..." }
+  },
+  "sections": {
+    "work_experience": [
+      {
+        "id": 1,
+        "months": null,
+        "fields": {
+          "job_title": { "value": "Software Engineer", "...": "..." },
+          "company_name": { "...": "..." }
+        }
+      }
+    ],
+    "education": [
+      {
+        "id": 1,
+        "fields": {
+          "institution_name": { "...": "..." }
+        }
+      }
+    ],
+    "certifications": [],
+    "projects": [],
+    "awards": [],
+    "publications": [],
+    "volunteering": [],
+    "languages": [
+      {
+        "id": 1,
+        "fields": {
+          "language": { "...": "..." },
+          "proficiency_level": { "...": "..." }
+        }
+      }
+    ],
+    "links": [
+      {
+        "id": 1,
+        "fields": {
+          "link_type": { "...": "..." },
+          "url": { "...": "..." },
+          "label": { "...": "..." }
+        }
+      }
+    ],
+    "skills": [
+      {
+        "id": 1,
+        "skillName": "PostgreSQL",
+        "fields": {
+          "skill_id": { "...": "..." },
+          "proficiency_level": { "...": "..." },
+          "months_of_experience": { "...": "..." }
+        }
+      }
+    ]
+  },
+  "experience": null,
+  "files": [
+    {
+      "id": 5,
+      "type": "cv",
+      "name": "cv.pdf",
+      "uploadedAt": "2026-11-15T10:00:00.000Z",
+      "status": "completed",
+      "failureReason": null,
+      "completedAt": "2026-11-15T10:05:00.000Z",
+      "pendingReviewCount": 0,
+      "rawUrl": "/api/uploads/5/raw"
+    }
+  ]
+}
+```
+
+**FieldView shape:**
+
+Every field inside `profile` and each item's `fields` object is returned as a `FieldView`:
+
+- `value`: Current approved or stored value.
+- `resolutionMethod`: How the field value was resolved (`no_conflict`, `latest_value`, `human_reviewed`), or `null` if no provenance row exists.
+- `approvedAt`: Timestamp when the value was approved, or `null`.
+- `humanReviewed`: `true` if `resolutionMethod` is `human_reviewed`, otherwise `false`.
+- `manualValue`: `true` if `resolutionMethod` is `human_reviewed` and the field has no provenance source rows.
+- `reviewId`: ID of the human review that produced the manual value, or `null`.
+- `pendingReview`: `true` if an unresolved conflict exists for this field, otherwise `false`.
+- `sources`: Array of extraction sources that contributed to this field, sorted by `uploadedAt` then `jobId`.
+
+**Error responses:**
+
+| Status | When                                   | Body                                                                   |
+| ------ | -------------------------------------- | ---------------------------------------------------------------------- |
+| `400`  | Candidate ID is not a positive integer | `{"errors":{"candidateId":"Candidate id must be a positive integer"}}` |
+| `401`  | Not logged in or invalid/expired token | `{"errors":{"auth":"Log in to continue"}}`                             |
+| `403`  | User does not have admin role          | `{"errors":{"auth":"You do not have access to this resource"}}`        |
+| `404`  | Candidate not found                    | `{"errors":{"candidateId":"Candidate not found"}}`                     |
+| `500`  | Unexpected server error                | `{"errors":{"server":"Something went wrong"}}`                         |
 
 ## Testing and Code Quality
 
