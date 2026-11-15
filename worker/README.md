@@ -39,6 +39,18 @@ Each step is `async (ctx) => ctx`. It throws `TemporaryError` or `PermanentError
 
 To replace a stub, change the entry in `worker/src/steps/index.js`. The orchestrator does not change.
 
+### Step 4: Normalize skills (US-13)
+
+Normalizes raw extracted skill names to canonical names from the universal skills list:
+
+- Exact matches (case-insensitive, trimmed) resolve immediately via code without calling the LLM.
+- Fuzzy matching using Fuse.js searches canonical names with configurable minimum similarity (`SKILL_MIN_SIMILARITY`, default 0.5), returning up to 50 candidates.
+- Skills with candidates are batched into a single LLM request per file for canonical selection.
+- Code validation enforces that the LLM-selected name is one of the candidates provided. Otherwise, the skill is marked as unknown.
+- Skills without candidates above the threshold are marked unknown without calling the LLM.
+- Empty skill names are skipped.
+- Resolves skills into `ctx.skillResolutions`, logging only `{ jobId, matched, unknown, llmRequests }` without sensitive text.
+
 ### Step 5: Validate with code (US-09, US-14)
 
 `validateWithCode` runs deterministic code checks against `ctx.extraction`:

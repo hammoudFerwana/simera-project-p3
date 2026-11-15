@@ -176,6 +176,9 @@ The email is not part of the contract: the worker finds emails in the extracted 
 
 A skill that can't be matched to the universal list is stored in `unknown_skills.skill_name` instead.
 
+Matched skills are saved in `candidate_skills` with `ON CONFLICT (candidate_id, skill_id) DO UPDATE` to fill only empty fields (`COALESCE`). Provenance is recorded in `data_provenance` under `item_type = 'candidate_skills'` for `skill_id`, `proficiency_level`, and `months_of_experience`.
+Unknown skills are saved in `unknown_skills` (`status = 'pending'`, `source_file_id`), using `WHERE NOT EXISTS` on candidate, source file, and lowercase skill name to ensure idempotency across job retries.
+
 #### languages[] → `candidate_languages` (item_type `candidate_languages`)
 
 | Schema field        | Type                                    | Column              | Notes                               |
