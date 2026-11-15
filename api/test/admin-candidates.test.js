@@ -296,7 +296,7 @@ describe('Admin Candidates API (US-12)', () => {
   // AC1: 3 candidates, then the list total is 3 and holds all three ids.
   it('AC1: returns all candidates with correct total and candidate IDs', async () => {
     const res = await request(app)
-      .get('/api/admin/candidates')
+      .get(`/api/admin/candidates?search=${RUN_ID}`)
       .set('Cookie', adminCookie);
 
     expect(res.status).toBe(200);
@@ -349,7 +349,7 @@ describe('Admin Candidates API (US-12)', () => {
     created.humanReviewIds.push(hrCompleted.rows[0].id);
 
     const res = await request(app)
-      .get('/api/admin/candidates?hasPendingReview=true')
+      .get(`/api/admin/candidates?hasPendingReview=true&search=${RUN_ID}`)
       .set('Cookie', adminCookie);
 
     expect(res.status).toBe(200);
@@ -373,7 +373,7 @@ describe('Admin Candidates API (US-12)', () => {
     });
 
     const resSuccess = await request(app)
-      .get('/api/admin/candidates?status=failed')
+      .get(`/api/admin/candidates?status=failed&search=${RUN_ID}`)
       .set('Cookie', adminCookie);
 
     expect(resSuccess.status).toBe(200);
@@ -391,7 +391,7 @@ describe('Admin Candidates API (US-12)', () => {
   // pagination: pageSize=2 on 3 candidates -> 2 items, total 3, and page=2 -> 1 item. pageSize=101 -> 400.
   it('pagination: paginates correctly with page and pageSize, rejects pageSize > 100 with 400', async () => {
     const page1 = await request(app)
-      .get('/api/admin/candidates?pageSize=2&page=1')
+      .get(`/api/admin/candidates?pageSize=2&page=1&search=${RUN_ID}`)
       .set('Cookie', adminCookie);
 
     expect(page1.status).toBe(200);
@@ -401,7 +401,7 @@ describe('Admin Candidates API (US-12)', () => {
     expect(page1.body.items).toHaveLength(2);
 
     const page2 = await request(app)
-      .get('/api/admin/candidates?pageSize=2&page=2')
+      .get(`/api/admin/candidates?pageSize=2&page=2&search=${RUN_ID}`)
       .set('Cookie', adminCookie);
 
     expect(page2.status).toBe(200);
