@@ -7,7 +7,7 @@ import {
   ListItemText,
   Typography,
   Box,
-  Divider,
+  Divider,CircularProgress 
 } from "@mui/material";
 
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
@@ -15,10 +15,11 @@ import DashboardRoundedIcon from "@mui/icons-material/DashboardRounded";
 import FolderRoundedIcon from "@mui/icons-material/FolderRounded";
 import PeopleAltRoundedIcon from "@mui/icons-material/PeopleAltRounded";
 import RateReviewRoundedIcon from "@mui/icons-material/RateReviewRounded";
-
+import LogoutRoundedIcon from "@mui/icons-material/LogoutRounded";
 import { NavLink } from "react-router-dom";
 import { navigationLinks } from "../../constants/navigation";
-
+import { useNavigate } from "react-router-dom";
+import useLogout from "../../hooks/useLogout";
 const DRAWER_WIDTH = 250;
 
 const navigationIcons = {
@@ -30,7 +31,13 @@ const navigationIcons = {
 
 export default function Sidebar({ role }) {
   const links = navigationLinks[role] ?? [];
+const navigate = useNavigate();
 
+const { mutate: logout, isPending } = useLogout();
+
+const handleLogout = () => {
+  logout();
+};
   return (
     <Drawer
       variant="permanent"
@@ -151,6 +158,48 @@ export default function Sidebar({ role }) {
           );
         })}
       </List>
+
+      <Box sx={{ mt: "auto" }}>
+  <Divider
+    sx={{
+      borderColor: "rgba(255,255,255,0.12)",
+      mx: 1,
+      mb: 2,
+    }}
+  />
+
+  <List sx={{ px: 1 }}>
+    <ListItemButton
+      onClick={handleLogout}
+      disabled={isPending}
+      sx={{
+        borderRadius: 2,
+        py: 1.3,
+        px: 2,
+        color: "#CBD5E1",
+        "&:hover": {
+          backgroundColor: "rgba(255,255,255,0.08)",
+        },
+      }}
+    >
+      <ListItemIcon sx={{ minWidth: 38, color: "inherit" }}>
+        {isPending ? (
+          <CircularProgress size={18} color="inherit" />
+        ) : (
+          <LogoutRoundedIcon fontSize="small" />
+        )}
+      </ListItemIcon>
+
+      <ListItemText
+        primary="Logout"
+        primaryTypographyProps={{
+          fontSize: 14,
+          fontWeight: 500,
+        }}
+      />
+    </ListItemButton>
+  </List>
+</Box>
     </Drawer>
   );
 }
