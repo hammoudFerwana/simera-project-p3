@@ -39,6 +39,15 @@ Each step is `async (ctx) => ctx`. It throws `TemporaryError` or `PermanentError
 
 To replace a stub, change the entry in `worker/src/steps/index.js`. The orchestrator does not change.
 
+### Check email step (US-07)
+
+Checks that emails found in the file match the candidate's account login email (`users.email` via `candidate_profiles.user_id`).
+
+- Pure function `findEmails(text, links)` extracts lowercase, de-duplicated emails from document text and `mailto:` links.
+- Pure function `decideEmail(fileEmails, loginEmail)` permits continuation if the file contains the account email or contains no emails at all; otherwise reports mismatch.
+- On mismatch, throws `PermanentError('The file contains an email that does not match your account email')`.
+- On continuation, sets `ctx.loginEmail` to the lowercase account email.
+
 ## Add a job from the API (US-04, US-22)
 
 1. Insert the `processing_jobs` row with status `queued`.
