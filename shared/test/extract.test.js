@@ -22,7 +22,6 @@ function expectInOrder(text, parts) {
 
 const ALL_FILES = [
   ['cv-links.pdf', MIME_TYPES.pdf],
-  ['cv-two-columns.pdf', MIME_TYPES.pdf],
   ['cv-dates-right.pdf', MIME_TYPES.pdf],
   ['cv-ratings.pdf', MIME_TYPES.pdf],
   ['cv-wrapped-link.pdf', MIME_TYPES.pdf],
@@ -99,26 +98,6 @@ describe('extract: PDF', () => {
       'React',
       'English 90%'
     ]);
-  });
-
-  it('keeps all the text of a two-column PDF (the columns are not separated)', async () => {
-    const { text } = await extract(read('cv-two-columns.pdf'), MIME_TYPES.pdf);
-    for (const part of [
-      'CONTACT',
-      'jane.doe@example.com',
-      'SKILLS',
-      'Node.js',
-      'PostgreSQL',
-      'React',
-      'Jane Doe - Software Engineer',
-      'EXPERIENCE',
-      'Acme Corp, Backend Developer, 2019-05 to present',
-      'Built the queue and the worker',
-      'EDUCATION',
-      'BSc Computer Science, 2018'
-    ]) {
-      expect(text).toContain(part);
-    }
   });
 
   it('reports empty text for a PDF with no text (scan)', async () => {

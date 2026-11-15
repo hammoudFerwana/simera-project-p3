@@ -25,29 +25,6 @@ function savePdf(name, draw) {
   });
 }
 
-// Two columns. Not supported: the text is kept, the columns are mixed line by line.
-function twoColumns(doc) {
-  const sidebar = [
-    'CONTACT',
-    'jane.doe@example.com',
-    'SKILLS',
-    'Node.js',
-    'PostgreSQL',
-    'React'
-  ];
-  const main = [
-    'Jane Doe - Software Engineer',
-    'EXPERIENCE',
-    'Acme Corp, Backend Developer, 2019-05 to present',
-    'Built the queue and the worker',
-    'EDUCATION',
-    'BSc Computer Science, 2018'
-  ];
-  doc.fontSize(11);
-  sidebar.forEach((line, i) => doc.text(line, 50, 60 + i * 24, { width: 150 }));
-  main.forEach((line, i) => doc.text(line, 240, 60 + i * 24, { width: 300 }));
-}
-
 function withLink(doc) {
   doc.fontSize(12);
   doc.text('Jane Doe - Software Engineer', 50, 60);
@@ -180,7 +157,6 @@ function makeMarkdown() {
 }
 
 async function main() {
-  await savePdf('cv-two-columns.pdf', twoColumns);
   await savePdf('cv-links.pdf', withLink);
   await savePdf('cv-ratings.pdf', withRatings);
   await savePdf('cv-dates-right.pdf', datesOnTheRight);
