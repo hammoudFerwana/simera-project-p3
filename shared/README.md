@@ -251,3 +251,24 @@ Core tables have no confidence or evidence columns. For each field, the wrapper'
 - approved value: `data_provenance` (how and when it was approved), plus a `data_provenance_sources` row (`source_value`, `confidence`, `evidence`) pointing to the processing job of the file the current value came from. When a newer file updates the value, the source rows are updated to point to that file;
 - difference with the stored value (automatic or sent to review): `conflict_options` (`value`, `confidence`, `evidence`), with one option for the stored value and one for each new value;
 - unknown skill: `unknown_skills` (`skill_name`, `confidence`, `evidence`).
+
+## LLM Client (US-08)
+
+`shared/src/llm/client.js` provides an OpenAI-compatible Chat Completions client using Node 22 native `fetch`.
+
+```js
+const { createLlmClient, createLlmClientFromEnv } = require('shared/src/llm/client');
+
+const client = createLlmClientFromEnv();
+const { content, modelVersion } = await client.chatJson(messages);
+```
+
+### Features
+
+- Generic OpenAI-compatible Chat Completions endpoint (`POST {baseUrl}/chat/completions`).
+- Requests `temperature: 0` and `response_format: { type: 'json_object' }`.
+- Configurable timeout via `AbortSignal.timeout(timeoutMs)` (default 90,000 ms).
+- Classified errors: HTTP 408, 429, 5xx and network errors throw `TemporaryError`; 4xx throws `PermanentError`.
+- Error messages never expose request or response body content.
+- Reads `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`, and optional `LLM_TIMEOUT_MS`.
+
