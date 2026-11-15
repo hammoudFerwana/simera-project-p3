@@ -39,6 +39,17 @@ Each step is `async (ctx) => ctx`. It throws `TemporaryError` or `PermanentError
 
 To replace a stub, change the entry in `worker/src/steps/index.js`. The orchestrator does not change.
 
+### Step 5: Validate with code (US-09, US-14)
+
+`validateWithCode` runs deterministic code checks against `ctx.extraction`:
+- Evidence verification: checks that every non-null wrapper's evidence appears in `ctx.text` or `ctx.links` (normalized with Unicode NFKC, lowercase, single-space whitespace). Missing evidence adds `evidence_not_found`.
+- Format normalization:
+  - `candidate.phone`: normalized to E.164 via `libphonenumber-js`. Numbers without country code fail with `phone_without_country_code`; invalid numbers fail with `invalid_phone`.
+  - `candidate.country_code`: normalized to ISO 3166-1 alpha-2 via `i18n-iso-countries`. Invalid codes fail with `invalid_country`.
+  - `languages[].language`: normalized to its English name via `Intl.DisplayNames`. Invalid languages fail with `invalid_language`.
+  - URLs (`links[].url`, `work_experience[].company_url`, `certifications[].credential_url`, `projects[].project_url`, `publications[].url`): verified with http/https and domain dot checks, prepending `https://` for bare domains. Invalid URLs fail with `invalid_url`.
+- Safe failure handling: failed checks never change or drop values. Each failure records `{ section, index, field, reason }` in `ctx.failedChecks` and is logged with `jobId`, `section`, `index`, `field`, and `reason` only (never the value or evidence).
+
 ## Add a job from the API (US-04, US-22)
 
 1. Insert the `processing_jobs` row with status `queued`.
