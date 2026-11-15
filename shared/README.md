@@ -176,6 +176,9 @@ The email is not part of the contract: the worker finds emails in the extracted 
 
 A skill that can't be matched to the universal list is stored in `unknown_skills.skill_name` instead.
 
+Matched skills are saved in `candidate_skills` with `ON CONFLICT (candidate_id, skill_id) DO UPDATE` to fill only empty fields (`COALESCE`). Provenance is recorded in `data_provenance` under `item_type = 'candidate_skills'` for `skill_id`, `proficiency_level`, and `months_of_experience`.
+Unknown skills are saved in `unknown_skills` (`status = 'pending'`, `source_file_id`), using `WHERE NOT EXISTS` on candidate, source file, and lowercase skill name to ensure idempotency across job retries.
+
 #### languages[] → `candidate_languages` (item_type `candidate_languages`)
 
 | Schema field        | Type                                    | Column              | Notes                               |
@@ -257,7 +260,10 @@ Core tables have no confidence or evidence columns. For each field, the wrapper'
 `shared/src/llm/client.js` provides an OpenAI-compatible Chat Completions client using Node 22 native `fetch`.
 
 ```js
-const { createLlmClient, createLlmClientFromEnv } = require('shared/src/llm/client');
+const {
+  createLlmClient,
+  createLlmClientFromEnv
+} = require('shared/src/llm/client');
 
 const client = createLlmClientFromEnv();
 const { content, modelVersion } = await client.chatJson(messages);
@@ -271,4 +277,3 @@ const { content, modelVersion } = await client.chatJson(messages);
 - Classified errors: HTTP 408, 429, 5xx and network errors throw `TemporaryError`; 4xx throws `PermanentError`.
 - Error messages never expose request or response body content.
 - Reads `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`, and optional `LLM_TIMEOUT_MS`.
-
