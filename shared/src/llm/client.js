@@ -42,7 +42,11 @@ function createLlmClient({
       });
     } catch (err) {
       // Network error or timeout
-      throw new TemporaryError(`LLM request failed: ${err.name || 'NetworkError'}`);
+      const causeCode =
+        err.cause && err.cause.code ? ` (${err.cause.code})` : '';
+      throw new TemporaryError(
+        `LLM request failed: ${err.name || 'NetworkError'}${causeCode}`
+      );
     }
 
     if (!response.ok) {

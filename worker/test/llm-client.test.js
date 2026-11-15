@@ -132,6 +132,23 @@ describe('createLlmClient', () => {
     await expect(client.chatJson([])).rejects.toThrow(TemporaryError);
   });
 
+  it('includes cause code in the error message when available', async () => {
+    const err = new TypeError('fetch failed');
+    err.cause = { code: 'ENOTFOUND' };
+    const client = createLlmClient({
+      baseUrl: 'https://api.example.com',
+      apiKey: 'k',
+      model: 'm',
+      fetchImpl: async () => {
+        throw err;
+      }
+    });
+
+    await expect(client.chatJson([])).rejects.toThrow(
+      'LLM request failed: TypeError (ENOTFOUND)'
+    );
+  });
+
   it('throws PermanentError on 401', async () => {
     const client = createLlmClient({
       baseUrl: 'https://api.example.com',
