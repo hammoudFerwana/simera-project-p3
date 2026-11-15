@@ -8,14 +8,19 @@ const {
   normalizeCountry,
   normalizeLanguage
 } = require('../validation/formats');
+const { checkDates } = require('../validation/dates');
+const { jobMonths } = require('../../../shared/src/experience');
 
 /**
  * Creates the validateWithCode step.
  *
- * @param {{ log?: (entry: { jobId: unknown, section: string, index: number|null, field: string, reason: string }) => void }} [options]
+ * @param {{ log?: (entry: { jobId: unknown, section: string, index: number|null, field: string, reason: string }) => void, now?: () => Date }} [options]
  * @returns {(ctx: object) => Promise<object>}
  */
-function createValidateWithCodeStep({ log = console.warn } = {}) {
+function createValidateWithCodeStep({
+  log = console.warn,
+  now = () => new Date()
+} = {}) {
   return async function validateWithCode(ctx) {
     const failedChecks = [];
     const extraction = ctx.extraction;
@@ -128,6 +133,67 @@ function createValidateWithCodeStep({ log = console.warn } = {}) {
       extraction.publications.forEach((item, index) => {
         if (item) {
           checkField(item.url, normalizeUrl, 'publications', index, 'url');
+        }
+      });
+    }
+
+    const currentNow = typeof now === 'function' ? now() : now;
+    const dateFailures = checkDates(extraction, { now: currentNow });
+    for (const failure of dateFailures) {
+      failedChecks.push(failure);
+    }
+
+    if (Array.isArray(extraction.work_experience)) {
+      extraction.work_experience.forEach((item, index) => {
+        if (!item || typeof item !== 'object') {
+          return;
+        }
+
+        const hasFailedDateCheck = dateFailures.some(
+          (failure) =>
+            failure.section === 'work_experience' &&
+            failure.index === index &&
+            (failure.field === 'start_date' || failure.field === 'end_date')
+        );
+
+        if (hasFailedDateCheck) {
+          return;
+        }
+
+        const startVal = item.start_date ? item.start_date.value : null;
+        const endVal = item.end_date ? item.end_date.value : null;
+        const isCurrentVal = item.is_current ? item.is_current.value : false;
+
+        const computed = jobMonths(
+          {
+            start_date: startVal,
+            end_date: endVal,
+            is_current: isCurrentVal
+          },
+          { now: currentNow }
+        );
+
+        if (!item.duration_months) {
+          item.duration_months = {
+            value: null,
+            confidence: null,
+            evidence: null
+          };
+        }
+
+        const prevValue = item.duration_months.value;
+        item.duration_months.value = computed;
+
+        if (computed === null) {
+          item.duration_months.confidence = null;
+          item.duration_months.evidence = null;
+        } else if (
+          computed !== prevValue &&
+          item.duration_months.evidence === null &&
+          item.start_date
+        ) {
+          item.duration_months.evidence = item.start_date.evidence;
+          item.duration_months.confidence = item.start_date.confidence;
         }
       });
     }
