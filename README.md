@@ -586,6 +586,221 @@ Failed files include a plain-language error message and the instruction to uploa
 
 See the shared Apidog workspace for request and response examples.
 
+### Admin candidates (US-12)
+
+Endpoints under `/api/admin` provide administrative capabilities to list, search, filter, and inspect candidate profiles and data provenance.
+
+#### `GET /api/admin/candidates`
+
+Returns a paginated list of candidate profiles with optional search, processing status filter, and pending review filter.
+
+**Authentication:** Requires a valid `access_token` cookie and an `admin` role.
+
+**Request:**
+
+- No path parameters.
+- Query parameters:
+  - `page` (optional): Positive integer (default `1`).
+  - `pageSize` (optional): Positive integer up to `100` (default `20`).
+  - `status` (optional): Filter by latest processing job status (`queued`, `processing`, `completed`, `completed_with_review`, `failed`).
+  - `hasPendingReview` (optional): `true` or `false`. When `true`, returns only candidates with at least one pending human review.
+  - `search` (optional): Case-insensitive substring match on email, first name, last name, or full name (max 100 characters).
+- No request body.
+
+**Success response (`200`):**
+
+```json
+{
+  "items": [
+    {
+      "id": 1,
+      "email": "jane@example.com",
+      "firstName": "Jane",
+      "lastName": "Doe",
+      "latestJobStatus": "completed",
+      "pendingReviewCount": 0,
+      "fileCount": 2,
+      "createdAt": "2026-11-15T10:00:00.000Z"
+    }
+  ],
+  "page": 1,
+  "pageSize": 20,
+  "total": 1
+}
+```
+
+**Response fields:**
+
+- `items`: Array of candidate summary objects.
+  - `id`: Candidate profile ID.
+  - `email`: User account email.
+  - `firstName`: Candidate first name.
+  - `lastName`: Candidate last name.
+  - `latestJobStatus`: Status of the candidate's latest processing job, or `null` if no job exists.
+  - `pendingReviewCount`: Number of non-completed human reviews for the candidate.
+  - `fileCount`: Total number of uploaded files for the candidate.
+  - `createdAt`: Profile creation timestamp.
+- `page`: Current page number.
+- `pageSize`: Number of items per page.
+- `total`: Total count of matching candidates.
+
+**Error responses:**
+
+| Status | When                                             | Body                                                            |
+| ------ | ------------------------------------------------ | --------------------------------------------------------------- |
+| `400`  | Invalid query parameter (`status`, `page`, etc.) | `{"errors":{"<field>":"<validation error message>"}}`           |
+| `401`  | Not logged in or invalid/expired token           | `{"errors":{"auth":"Log in to continue"}}`                      |
+| `403`  | User does not have admin role                    | `{"errors":{"auth":"You do not have access to this resource"}}` |
+| `500`  | Unexpected server error                          | `{"errors":{"server":"Something went wrong"}}`                  |
+
+#### `GET /api/admin/candidates/:id`
+
+Returns a candidate's complete profile, section items with per-field provenance and review markers, experience summary, and uploaded files.
+
+**Authentication:** Requires a valid `access_token` cookie and an `admin` role.
+
+**Request:**
+
+- Path parameters:
+  - `id`: Positive integer (candidate profile ID).
+- No query parameters.
+- No request body.
+
+**Success response (`200`):**
+
+```json
+{
+  "candidate": {
+    "id": 1,
+    "email": "jane@example.com",
+    "createdAt": "2026-11-15T10:00:00.000Z"
+  },
+  "profile": {
+    "first_name": {
+      "value": "Jane",
+      "resolutionMethod": "latest_value",
+      "approvedAt": "2026-11-15T10:05:00.000Z",
+      "humanReviewed": false,
+      "manualValue": false,
+      "reviewId": null,
+      "pendingReview": false,
+      "sources": [
+        {
+          "jobId": 10,
+          "fileId": 5,
+          "fileType": "cv",
+          "fileName": "cv.pdf",
+          "uploadedAt": "2026-11-15T10:00:00.000Z",
+          "value": "Jane",
+          "confidence": 0.95,
+          "evidence": "Name: Jane Doe"
+        }
+      ]
+    },
+    "last_name": { "value": "Doe", "...": "..." },
+    "headline": { "...": "..." },
+    "summary": { "...": "..." },
+    "phone": { "...": "..." },
+    "industry": { "...": "..." },
+    "profession": { "...": "..." },
+    "city": { "...": "..." },
+    "country_code": { "...": "..." }
+  },
+  "sections": {
+    "work_experience": [
+      {
+        "id": 1,
+        "months": null,
+        "fields": {
+          "job_title": { "value": "Software Engineer", "...": "..." },
+          "company_name": { "...": "..." }
+        }
+      }
+    ],
+    "education": [
+      {
+        "id": 1,
+        "fields": {
+          "institution_name": { "...": "..." }
+        }
+      }
+    ],
+    "certifications": [],
+    "projects": [],
+    "awards": [],
+    "publications": [],
+    "volunteering": [],
+    "languages": [
+      {
+        "id": 1,
+        "fields": {
+          "language": { "...": "..." },
+          "proficiency_level": { "...": "..." }
+        }
+      }
+    ],
+    "links": [
+      {
+        "id": 1,
+        "fields": {
+          "link_type": { "...": "..." },
+          "url": { "...": "..." },
+          "label": { "...": "..." }
+        }
+      }
+    ],
+    "skills": [
+      {
+        "id": 1,
+        "skillName": "PostgreSQL",
+        "fields": {
+          "skill_id": { "...": "..." },
+          "proficiency_level": { "...": "..." },
+          "months_of_experience": { "...": "..." }
+        }
+      }
+    ]
+  },
+  "experience": null,
+  "files": [
+    {
+      "id": 5,
+      "type": "cv",
+      "name": "cv.pdf",
+      "uploadedAt": "2026-11-15T10:00:00.000Z",
+      "status": "completed",
+      "failureReason": null,
+      "completedAt": "2026-11-15T10:05:00.000Z",
+      "pendingReviewCount": 0,
+      "rawUrl": "/api/uploads/5/raw"
+    }
+  ]
+}
+```
+
+**FieldView shape:**
+
+Every field inside `profile` and each item's `fields` object is returned as a `FieldView`:
+
+- `value`: Current approved or stored value.
+- `resolutionMethod`: How the field value was resolved (`no_conflict`, `latest_value`, `human_reviewed`), or `null` if no provenance row exists.
+- `approvedAt`: Timestamp when the value was approved, or `null`.
+- `humanReviewed`: `true` if `resolutionMethod` is `human_reviewed`, otherwise `false`.
+- `manualValue`: `true` if `resolutionMethod` is `human_reviewed` and the field has no provenance source rows.
+- `reviewId`: ID of the human review that produced the manual value, or `null`.
+- `pendingReview`: `true` if an unresolved conflict exists for this field, otherwise `false`.
+- `sources`: Array of extraction sources that contributed to this field, sorted by `uploadedAt` then `jobId`.
+
+**Error responses:**
+
+| Status | When                                   | Body                                                                   |
+| ------ | -------------------------------------- | ---------------------------------------------------------------------- |
+| `400`  | Candidate ID is not a positive integer | `{"errors":{"candidateId":"Candidate id must be a positive integer"}}` |
+| `401`  | Not logged in or invalid/expired token | `{"errors":{"auth":"Log in to continue"}}`                             |
+| `403`  | User does not have admin role          | `{"errors":{"auth":"You do not have access to this resource"}}`        |
+| `404`  | Candidate not found                    | `{"errors":{"candidateId":"Candidate not found"}}`                     |
+| `500`  | Unexpected server error                | `{"errors":{"server":"Something went wrong"}}`                         |
+
 ## Testing and Code Quality
 
 - **Run Tests**:
