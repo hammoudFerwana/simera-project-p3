@@ -91,6 +91,39 @@ async function markCompleted(
   );
 }
 
+async function saveExtractionMetadata(
+  db,
+  jobId,
+  {
+    extractedAt,
+    modelName,
+    modelVersion,
+    promptVersion,
+    documentLanguage,
+    extractionWarnings
+  }
+) {
+  await db.query(
+    `UPDATE processing_jobs
+        SET extracted_at = $2,
+            model_name = $3,
+            model_version = $4,
+            prompt_version = $5,
+            document_language = $6,
+            extraction_warnings = $7
+      WHERE id = $1`,
+    [
+      jobId,
+      extractedAt,
+      modelName,
+      modelVersion,
+      promptVersion,
+      documentLanguage ? String(documentLanguage).slice(0, 20) : null,
+      extractionWarnings ? JSON.stringify(extractionWarnings) : null
+    ]
+  );
+}
+
 module.exports = {
   startAttempt,
   failIfExhausted,
@@ -98,5 +131,6 @@ module.exports = {
   markFailed,
   markCompleted,
   getJob,
-  getCandidateId
+  getCandidateId,
+  saveExtractionMetadata
 };

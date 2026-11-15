@@ -1,3 +1,4 @@
+const { createCallLlmStep } = require('./call-llm');
 const { createCheckEmailStep } = require('./check-email');
 
 const stub = (name) => async (ctx) => {
@@ -7,6 +8,8 @@ const stub = (name) => async (ctx) => {
 
 module.exports = [
   stub('extractTextAndLinks'), // US-06
+  stub('checkEmail'), // US-07
+  createCallLlmStep({ db: require('shared/src/database') }), // US-08
   createCheckEmailStep({ db: require('shared/src/database') }), // US-07
   stub('callLlm'), // US-08
   stub('normalizeSkills'), // US-13
