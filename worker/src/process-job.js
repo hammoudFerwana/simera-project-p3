@@ -34,6 +34,7 @@ async function runJob(
           jobId,
           fileId: job.file_id,
           candidateId: job.candidate_id,
+          userId: job.user_id,
           changedFieldCount: 0,
           pendingReviewCount: 0
         },

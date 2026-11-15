@@ -8,6 +8,7 @@ async function startAttempt(db, jobId, maxAttempts) {
             attempt_count = j.attempt_count + 1,
             next_retry_at = NULL
        FROM uploaded_files f
+       JOIN candidate_profiles cp ON cp.id = f.candidate_id
       WHERE j.id = $1
         AND f.id = j.file_id
         AND j.status IN ('queued', 'processing')
@@ -20,7 +21,7 @@ async function startAttempt(db, jobId, maxAttempts) {
              AND j2.id < j.id
              AND j2.status IN ('queued', 'processing')
         )
-      RETURNING j.*, f.candidate_id`,
+      RETURNING j.*, f.candidate_id, cp.user_id`,
     [jobId, maxAttempts]
   );
   return rows[0] || null;
