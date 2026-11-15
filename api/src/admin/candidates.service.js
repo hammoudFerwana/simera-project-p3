@@ -2,6 +2,8 @@
  * Candidates read service for admin candidates list and candidate profile view.
  */
 
+const { calculateExperienceMonths } = require('shared/src/experience');
+
 function escapeIlike(str) {
   return str.replace(/[\\%_]/g, '\\$&');
 }
@@ -171,7 +173,7 @@ function makeFieldView({
  * @param {number} candidateId - candidate profile ID
  * @returns {Promise<object | null>} full profile response or null if not found
  */
-async function getCandidateProfile(db, candidateId) {
+async function getCandidateProfile(db, candidateId, { now = new Date() } = {}) {
   const profileResult = await db.query(
     `SELECT
       cp.id,
@@ -426,8 +428,18 @@ async function getCandidateProfile(db, candidateId) {
     });
   }
 
+  // Experience months are calculated on read and never stored (US-14).
+  const experienceResult = calculateExperienceMonths(
+    workExperienceResult.rows.map((row) => ({
+      start_date: row.start_date,
+      end_date: row.end_date,
+      is_current: row.is_current
+    })),
+    { now }
+  );
+
   // Build section items
-  const workExperience = workExperienceResult.rows.map((row) => {
+  const workExperience = workExperienceResult.rows.map((row, index) => {
     const fields = {};
     const fieldNames = [
       'job_title',
@@ -457,7 +469,7 @@ async function getCandidateProfile(db, candidateId) {
     }
     return {
       id: row.id,
-      months: null,
+      months: experienceResult.perJob[index],
       fields
     };
   });
@@ -729,7 +741,7 @@ async function getCandidateProfile(db, candidateId) {
       links,
       skills
     },
-    experience: null,
+    experience: { totalMonths: experienceResult.totalMonths },
     files
   };
 }
