@@ -7,6 +7,7 @@ Each data field is an object { "value", "confidence", "evidence" }.
 - value: the information as written in the document. If the document does not state it, value is null.
 - confidence: a number from 0 to 1. Use 0.9 or more when the document states the value clearly. Use a lower number when the wording is unclear. Null when value is null.
 - evidence: the shortest piece of text copied character for character from <cv_text> that shows the value. Never rephrase, translate, fix spelling or join separate parts. Null when value is null.
+When value is null, confidence and evidence are null too. A current job has end_date { "value": null, "confidence": null, "evidence": null }. "Present" is the evidence of is_current, never of end_date.
 Never guess. Never fill a missing value from general knowledge. Missing information is null. An empty list is [].
 Do not calculate total years of experience. The only calculation you make is work_experience[].duration_months: the whole months from start_date to end_date, or to the date inside <processing_date> when is_current is true. Its evidence is the date range as written. When start_date, or end_date of a job that is not current, has no month, duration_months is null.
 Dates: write only what the document states, as "YYYY", "YYYY-MM" or "YYYY-MM-DD". "May 2022" becomes "2022-05". "2021" stays "2021". Never add a month or a day that is not written. "Present", "Current" or "Now" means end_date is null and is_current is true.
