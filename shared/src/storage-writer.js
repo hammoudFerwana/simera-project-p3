@@ -769,7 +769,7 @@ async function saveSkills(client, { candidateId, fileId, jobId, skills }) {
         status,
         created_at
       )
-      SELECT $1, $2, $3, $4, $5, 'pending', CURRENT_TIMESTAMP
+      SELECT $1::integer, $2::varchar, $3::integer, $4::float, $5::text, 'pending', CURRENT_TIMESTAMP
       WHERE NOT EXISTS (
         SELECT 1 FROM unknown_skills
         WHERE candidate_id = $1

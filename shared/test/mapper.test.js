@@ -316,4 +316,253 @@ describe('mapExtractionToStorage', () => {
       expect(() => mapExtractionToStorage(input)).toThrow(TypeError);
     }
   );
+
+  describe('skills mapping (US-13)', () => {
+    test('maps matched and unknown skills correctly', () => {
+      const input = buildValidExtraction();
+      input.skills = [
+        {
+          name: v('React'),
+          proficiency_level: v('expert'),
+          stated_duration: {
+            value: { amount: 2, unit: 'years' },
+            confidence: 0.9,
+            evidence: '2 years'
+          }
+        },
+        {
+          name: v('UnknownTech'),
+          proficiency_level: null,
+          stated_duration: null
+        }
+      ];
+
+      const resolutions = [
+        {
+          index: 0,
+          status: 'matched',
+          skillId: 10,
+          canonicalName: 'React',
+          method: 'exact'
+        },
+        {
+          index: 1,
+          status: 'unknown',
+          skillId: null,
+          canonicalName: null,
+          method: 'no_candidates'
+        }
+      ];
+
+      const result = mapExtractionToStorage(input, [], resolutions);
+
+      expect(result.skills.matched).toEqual([
+        {
+          sourceIndex: 0,
+          skillId: 10,
+          fields: {
+            skill_id: { value: 10, confidence: 0.9, evidence: 'React' },
+            proficiency_level: {
+              value: 'expert',
+              confidence: 0.9,
+              evidence: 'expert'
+            },
+            months_of_experience: {
+              value: 24,
+              confidence: 0.9,
+              evidence: '2 years'
+            }
+          }
+        }
+      ]);
+
+      expect(result.skills.unknown).toEqual([
+        {
+          sourceIndex: 1,
+          skillName: 'UnknownTech',
+          confidence: 0.9,
+          evidence: 'UnknownTech'
+        }
+      ]);
+    });
+
+    test('converts years to whole months (1.5 years -> 18)', () => {
+      const input = buildValidExtraction();
+      input.skills = [
+        {
+          name: v('Node.js'),
+          proficiency_level: null,
+          stated_duration: {
+            value: { amount: 1.5, unit: 'years' },
+            confidence: 0.9,
+            evidence: '1.5 years'
+          }
+        }
+      ];
+      const resolutions = [
+        {
+          index: 0,
+          status: 'matched',
+          skillId: 20,
+          canonicalName: 'Node.js',
+          method: 'exact'
+        }
+      ];
+
+      const result = mapExtractionToStorage(input, [], resolutions);
+
+      expect(result.skills.matched[0].fields.months_of_experience.value).toBe(
+        18
+      );
+    });
+
+    test('skill with failed name is stored nowhere (neither candidate_skills nor unknown_skills)', () => {
+      const input = buildValidExtraction();
+      input.skills = [
+        {
+          name: v('FakeSkill'),
+          proficiency_level: null,
+          stated_duration: null
+        }
+      ];
+      const resolutions = [
+        {
+          index: 0,
+          status: 'matched',
+          skillId: 30,
+          canonicalName: 'FakeSkill',
+          method: 'llm'
+        }
+      ];
+      const failedChecks = [
+        {
+          section: 'skills',
+          index: 0,
+          field: 'name',
+          reason: 'evidence_not_found'
+        }
+      ];
+
+      const result = mapExtractionToStorage(input, failedChecks, resolutions);
+
+      expect(result.skills.matched).toHaveLength(0);
+      expect(result.skills.unknown).toHaveLength(0);
+    });
+
+    test('failed proficiency_level is dropped only while skill remains matched', () => {
+      const input = buildValidExtraction();
+      input.skills = [
+        {
+          name: v('TypeScript'),
+          proficiency_level: v('invalid_level'),
+          stated_duration: {
+            value: { amount: 6, unit: 'months' },
+            confidence: 0.8,
+            evidence: '6 months'
+          }
+        }
+      ];
+      const resolutions = [
+        {
+          index: 0,
+          status: 'matched',
+          skillId: 40,
+          canonicalName: 'TypeScript',
+          method: 'exact'
+        }
+      ];
+      const failedChecks = [
+        {
+          section: 'skills',
+          index: 0,
+          field: 'proficiency_level',
+          reason: 'invalid_format'
+        }
+      ];
+
+      const result = mapExtractionToStorage(input, failedChecks, resolutions);
+
+      expect(result.skills.matched).toHaveLength(1);
+      expect(result.skills.matched[0].fields.proficiency_level).toBeUndefined();
+      expect(result.skills.matched[0].fields.skill_id.value).toBe(40);
+      expect(result.skills.matched[0].fields.months_of_experience.value).toBe(
+        6
+      );
+    });
+
+    test('two raw skills resolving to one skillId become one entry with later filling empty fields only', () => {
+      const input = buildValidExtraction();
+      input.skills = [
+        {
+          name: v('ReactJS'),
+          proficiency_level: empty(),
+          stated_duration: {
+            value: { amount: 2, unit: 'years' },
+            confidence: 0.9,
+            evidence: '2 years'
+          }
+        },
+        {
+          name: v('React.js'),
+          proficiency_level: v('senior'),
+          stated_duration: {
+            value: { amount: 1, unit: 'years' },
+            confidence: 0.8,
+            evidence: '1 year'
+          }
+        }
+      ];
+      const resolutions = [
+        {
+          index: 0,
+          status: 'matched',
+          skillId: 10,
+          canonicalName: 'React',
+          method: 'llm'
+        },
+        {
+          index: 1,
+          status: 'matched',
+          skillId: 10,
+          canonicalName: 'React',
+          method: 'llm'
+        }
+      ];
+
+      const result = mapExtractionToStorage(input, [], resolutions);
+
+      expect(result.skills.matched).toHaveLength(1);
+      const item = result.skills.matched[0];
+      expect(item.sourceIndex).toBe(0);
+      expect(item.skillId).toBe(10);
+      expect(item.fields.months_of_experience.value).toBe(24);
+      expect(item.fields.proficiency_level.value).toBe('senior');
+    });
+
+    test('AC7: proficiency_level null stays null', () => {
+      const input = buildValidExtraction();
+      input.skills = [
+        {
+          name: v('GraphQL'),
+          proficiency_level: empty(),
+          stated_duration: null
+        }
+      ];
+      const resolutions = [
+        {
+          index: 0,
+          status: 'matched',
+          skillId: 50,
+          canonicalName: 'GraphQL',
+          method: 'exact'
+        }
+      ];
+
+      const result = mapExtractionToStorage(input, [], resolutions);
+
+      expect(
+        result.skills.matched[0].fields.proficiency_level.value
+      ).toBeNull();
+    });
+  });
 });
