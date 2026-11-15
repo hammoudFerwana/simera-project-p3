@@ -1,29 +1,76 @@
-import { createBrowserRouter } from 'react-router-dom';
 
-import AuthLayout from './layouts/AuthLayout';
-import Register from './pages/auth/Register';
-import Login from './pages/auth/Login';
-import VerifyOTP from './pages/auth/VerifyOTP';
+import { createBrowserRouter } from "react-router-dom";
 
+import AuthLayout from "./layouts/AuthLayout";
+import MainLayout from "./layouts/MainLayout";
+
+import Register from "./pages/auth/Register";
+import Login from "./pages/auth/Login";
+import VerifyOTP from "./pages/auth/VerifyOTP";
+
+import ProtectedRoute from "../src/ProtectedRoute";
+
+import CandidateDashboard from "./pages/candidate/CandidateDashboard";
+import AdminDashboard from "./pages/admin/AdminDashboard";
+
+import MyFiles from "./pages/candidate/MyFiles";
+import Candidates from "./pages/admin/Candidates";
+import ReviewQueue from "./pages/admin/ReviewQueue";
 const router = createBrowserRouter([
   // Authentication
   {
-    path: '/auth',
+    path: "/auth",
     element: <AuthLayout />,
     children: [
+      { path: "register", element: <Register /> },
+      { path: "login", element: <Login /> },
+      { path: "verify-otp", element: <VerifyOTP /> },
+    ],
+  },
+
+  // Candidate
+  {
+    element: <ProtectedRoute allowedRoles={["candidate"]} />,
+    children: [
       {
-        path: 'register',
-        element: <Register />
+        element: <MainLayout />,
+        children: [
+          {
+            path: "/candidate",
+            element: <CandidateDashboard />,
+          },
+           {
+            path: "/candidate/my-files",
+            element: <MyFiles />,
+          },
+        ],
       },
+    ],
+  },
+
+  // Admin
+  {
+    element: <ProtectedRoute allowedRoles={["admin"]} />,
+    children: [
       {
-        path: 'login',
-        element: <Login />
+        element: <MainLayout />,
+        children: [
+          {
+            path: "/admin",
+            element: <AdminDashboard />,
+          },
+           {
+            path: "/admin/candidates",
+            element: <Candidates />,
+          },
+           {
+            path: "/admin/review-queue",
+            element: <ReviewQueue />,
+          },
+        ],
       },
-      {
-        path: 'verify-otp',
-        element: <VerifyOTP />
-      }
-    ]
-  }
+    ],
+  },
 ]);
+
 export default router;

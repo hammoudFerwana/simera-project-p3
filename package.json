@@ -17,12 +17,12 @@
     "db:setup": "npm run schema --workspace=shared && npm run seed --workspace=shared",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "test": "jest"
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js"
   },
-  "jest": {
+ "jest": {
     "testMatch": [
-      "<rootDir>/api/test/**/*.test.js",
-      "<rootDir>/shared/test/**/*.test.js"
+      "<rootDir>/*/test/**/*.test.js",
+      "<rootDir>/*/src/**/*.test.js"
     ],
     "testEnvironment": "node"
   },

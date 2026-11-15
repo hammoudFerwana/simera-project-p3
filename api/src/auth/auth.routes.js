@@ -6,12 +6,16 @@ const {
   validateVerifyOtpInput
 } = require('./otp.validation');
 const { OtpError, issueOtp, resendOtp, verifyOtp } = require('./otp.service');
+const { validateLoginInput } = require('./login.validation');
+const { LoginError, login } = require('./login.service');
+const { clearTokenCookie, setTokenCookie, signToken } = require('./token');
+const { requireAuth } = require('./guards');
 
 /**
- * Sends an expected OTP outcome as
+ * Sends an expected OTP or login outcome as
  * { errors: { <field>: message }, reason, ...details }.
  */
-function sendOtpError(res, error) {
+function sendExpectedError(res, error) {
   return res.status(error.status).json({
     errors: { [error.field]: error.message },
     reason: error.reason,
@@ -69,7 +73,7 @@ function createAuthRouter({ getDb, getMailer }) {
       });
     } catch (error) {
       if (error instanceof OtpError) {
-        return sendOtpError(res, error);
+        return sendExpectedError(res, error);
       }
       return next(error);
     }
@@ -88,10 +92,42 @@ function createAuthRouter({ getDb, getMailer }) {
       });
     } catch (error) {
       if (error instanceof OtpError) {
-        return sendOtpError(res, error);
+        return sendExpectedError(res, error);
       }
       return next(error);
     }
+  });
+
+  router.post('/login', async (req, res, next) => {
+    const validation = validateLoginInput(req.body);
+    if (!validation.success) {
+      return res.status(400).json({ errors: validation.errors });
+    }
+
+    try {
+      const user = await login({ db: getDb() }, validation.data);
+      setTokenCookie(res, signToken({ userId: user.id, role: user.role }));
+      return res.status(200).json({ message: 'Logged in', user });
+    } catch (error) {
+      if (error instanceof LoginError) {
+        return sendExpectedError(res, error);
+      }
+      return next(error);
+    }
+  });
+
+  // Stateless: clearing the cookie is the whole logout. Works without a token.
+  router.post('/logout', (req, res) => {
+    clearTokenCookie(res);
+    return res.status(200).json({ message: 'Logged out' });
+  });
+
+  // Lets the frontend restore the user after a page reload, since the
+  // HttpOnly cookie can't be read from JavaScript.
+  router.get('/me', requireAuth, (req, res) => {
+    return res.status(200).json({
+      user: { id: req.user.userId, role: req.user.role }
+    });
   });
 
   return router;

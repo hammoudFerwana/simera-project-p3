@@ -276,6 +276,263 @@ Run the OTP tests only. They run against the real `simera_test` database (`TEST_
 npx jest api/test/otp.test.js --verbose
 ```
 
+### Login, logout and access guards (US-03)
+
+One login for candidates and admins. On success the API signs a **JWT** holding `{ userId, role }` and sends it in an **HttpOnly cookie** named `access_token`. The browser sends the cookie back automatically on every request; the frontend never reads or stores the token itself.
+
+- **Role:** `admin` if the user has an `admins` row, otherwise `candidate` (there is no role column). It's derived at login and kept inside the token.
+- **Expiry:** `JWT_EXPIRES_IN_HOURS` (default 24) for both the token and the cookie. After that the user logs in again.
+- **Stateless:** tokens aren't stored anywhere. Logout clears the cookie; a token copied before logout stays valid until it expires, and a role change (an `admins` row added or removed) applies at the next login.
+- **Cookie:** `HttpOnly`, `SameSite=Lax`, `Path=/`, and `Secure` when `NODE_ENV=production`.
+- **Frontend on another port:** cookies are sent only to the same site, so run the frontend through a dev proxy to the API (e.g. Vite `server.proxy` for `/api`) and send requests with `credentials: 'include'`.
+
+Requires `JWT_SECRET` in `.env` (the API refuses to start without it). Generate one with:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
+```
+
+#### `POST /api/auth/login`
+
+Request:
+
+```json
+{ "email": "jane.doe@example.com", "password": "secret-password" }
+```
+
+The email is trimmed and lowercased, like at registration.
+
+| Status | `reason`                | When                                                                         | Body                                                                                                    |
+| ------ | ----------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `200`  |                         | Correct credentials; sets the `access_token` cookie                          | `{ "message": "Logged in", "user": { "id": 2, "email": "jane.doe@example.com", "role": "candidate" } }` |
+| `400`  |                         | Invalid email, or an empty password                                          | `errors.email` / `errors.password`: field message                                                       |
+| `401`  | `invalid_credentials`   | Unknown email or wrong password (same message for both)                      | `errors.credentials`: "Email or password is incorrect"                                                  |
+| `403`  | `verification_required` | Correct password, but the candidate's email isn't verified; no cookie is set | See the example below                                                                                   |
+
+The `403` body also carries the account's normalized email at the top level, so the frontend can open `/verify` for it:
+
+```json
+{
+  "errors": { "email": "Verify your email before logging in" },
+  "reason": "verification_required",
+  "email": "jane.doe@example.com"
+}
+```
+
+The frontend redirects by `user.role` (`candidate` → `/candidate`, `admin` → `/admin`), and to `/verify` on `verification_required`.
+
+#### `POST /api/auth/logout`
+
+Clears the cookie. Always `200` with `{ "message": "Logged out" }`, with or without a token.
+
+#### `GET /api/auth/me`
+
+Returns the logged-in user from the cookie, so the frontend can restore the session after a page reload.
+
+| Status | Body                                                               |
+| ------ | ------------------------------------------------------------------ |
+| `200`  | `{ "user": { "id": 2, "role": "candidate" } }`                     |
+| `401`  | `errors.auth`: "Log in to continue" (no, invalid or expired token) |
+
+Try it (`-c` saves the cookie, `-b` sends it):
+
+```bash
+curl -i -c cookies.txt -X POST http://localhost:3000/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"admin@example.com","password":"change_this_password_123"}'
+
+curl -i -b cookies.txt http://localhost:3000/api/auth/me
+
+curl -i -b cookies.txt -c cookies.txt -X POST http://localhost:3000/api/auth/logout
+```
+
+#### Guards for protected routes
+
+Every later protected route uses the guards in `api/src/auth/guards.js` instead of its own checks:
+
+| Guard                                 | Checks                                                                                                               | Fails with |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | ---------- |
+| `requireAuth`                         | A valid, unexpired token cookie. Sets `req.user = { userId, role }`                                                  | `401`      |
+| `requireRole('admin' \| 'candidate')` | `req.user.role` is the given role                                                                                    | `403`      |
+| `requireOwnership(getOwnerUserId)`    | A candidate owns the resource (`getOwnerUserId(req)`, sync or async, returns its `users.id`). An admin always passes | `403`      |
+
+`requireRole` and `requireOwnership` run after `requireAuth`. Errors use `errors.auth` ("Log in to continue" / "You do not have access to this resource").
+
+```js
+const {
+  requireAuth,
+  requireRole,
+  requireOwnership
+} = require('../auth/guards');
+
+// Admin-only API
+router.get('/candidates', requireAuth, requireRole('admin'), listCandidates);
+
+// A candidate reaches only their own file; an admin reaches any file
+router.get(
+  '/files/:fileId',
+  requireAuth,
+  requireOwnership(async (req) => findFileOwnerUserId(req.params.fileId)),
+  getFile
+);
+```
+
+### File upload (US-04)
+
+A verified candidate uploads a CV (PDF or DOCX) and a LinkedIn file (md, exported with the "LinkedIn to Markdown" extension) in two separate slots, one file per request. An updated version can be uploaded at any time, and each accepted file gets its own processing job.
+
+**What happens, in order** (requirements 3.3):
+
+1. The extension is accepted for the slot: `cv` → `.pdf` / `.docx`, `linkedin` → `.md`.
+2. The real content matches the extension: PDF starts with `%PDF-`, DOCX is a ZIP holding `word/document.xml`, md is valid UTF-8 text. The client's `Content-Type` is ignored.
+3. The size is 10 MB or less.
+4. The file opens and its text is extracted (unpdf for PDF, mammoth for DOCX, md read as plain text and never rendered as HTML). Text shorter than `MIN_EXTRACTED_TEXT_CHARS` (after collapsing whitespace) means "no readable text".
+5. Duplicate check: SHA-256 of the extracted text (trimmed, whitespace collapsed), looked up in **all** `uploaded_files` rows. The same text with different spacing, or uploaded by another candidate, is a duplicate.
+6. The raw file is saved unchanged in private storage (`UPLOAD_STORAGE_DIR`, default `storage/uploads/`), under a random name.
+7. One transaction inserts the `uploaded_files` row and its `processing_jobs` row (status `queued`).
+8. The job id is sent to the queue (`enqueueJob` from `shared/src/queue.js`, pg-boss), once.
+
+**A rejected file leaves nothing behind:** no raw file, no row, no job, and the reason is only in the response. If saving fails after the raw file was written, the file is deleted again.
+
+**Shared service:** steps 1–8 live in `processUpload()` in `shared/src/upload/upload.service.js`, with a `sourceType` parameter, so US-22 (Simera JSON) uses the same function with `createJob: false` (its job is created when the admin clicks the button).
+
+**Settings** (optional, in `.env`):
+
+| Variable                   | Default           | Meaning                                                                                   |
+| -------------------------- | ----------------- | ----------------------------------------------------------------------------------------- |
+| `UPLOAD_STORAGE_DIR`       | `storage/uploads` | Private folder for raw files, relative to the repository root (git-ignored, never served) |
+| `MIN_EXTRACTED_TEXT_CHARS` | `50`              | Minimum extracted text length; below it, "no readable text"                               |
+
+#### `POST /api/uploads/:sourceType`
+
+- `:sourceType` is `cv` or `linkedin`.
+- Body: `multipart/form-data` with the file in a field named **`file`**.
+- Access: a logged-in candidate (`access_token` cookie) with a verified email.
+
+| Status | `reason`                | When                                                 | Message (`errors.<field>`)                                                                             |
+| ------ | ----------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `202`  |                         | Accepted and queued                                  | `{ "message": "File received, processing has started", "fileId": 7, "jobId": 7 }`                      |
+| `400`  |                         | Unknown slot                                         | `sourceType`: "Upload type must be one of: cv, linkedin"                                               |
+| `400`  |                         | No file, or not in the `file` field, or two files    | `file`: "Choose a file to upload" / "Upload exactly one file in the \"file\" field"                    |
+| `400`  | `unsupported_format`    | Wrong extension for the slot, or content ≠ extension | `file`: "This file type is not accepted. Accepted formats for the CV: PDF, DOCX" (+ `acceptedFormats`) |
+| `400`  | `corrupted_file`        | The file can't be opened or read                     | `file`: "The file is corrupted, please upload a valid file"                                            |
+| `400`  | `no_readable_text`      | Empty or nearly empty text (e.g. a scanned PDF)      | `file`: "The file has no readable text. Scanned or image-only files are not supported"                 |
+| `401`  |                         | Not logged in                                        | `auth`: "Log in to continue"                                                                           |
+| `403`  |                         | Logged in as an admin                                | `auth`: "You do not have access to this resource"                                                      |
+| `403`  | `verification_required` | The candidate's email isn't verified                 | `auth`: "Verify your email to continue"                                                                |
+| `409`  | `duplicate_file`        | The same text was already uploaded                   | `file`: "This file was already uploaded"                                                               |
+| `413`  | `file_too_large`        | Larger than 10 MB                                    | `file`: "The file is larger than 10 MB. Upload a file of 10 MB or less"                                |
+
+#### `GET /api/uploads/:fileId/raw`
+
+Downloads the original file unchanged. **Admin only.** It's always sent as an attachment with `X-Content-Type-Options: nosniff`, so the browser never renders it.
+
+| Status | When                                 | Body                                                     |
+| ------ | ------------------------------------ | -------------------------------------------------------- |
+| `200`  | Found                                | The raw bytes (`Content-Disposition: attachment`)        |
+| `400`  | `fileId` isn't a positive integer    | `errors.fileId`: "File id must be a positive integer"    |
+| `401`  | Not logged in                        | `errors.auth`: "Log in to continue"                      |
+| `403`  | Not an admin (even the file's owner) | `errors.auth`: "You do not have access to this resource" |
+| `404`  | No such file                         | `errors.fileId`: "File not found"                        |
+
+Try it with the API running (log in first so `cookies.txt` holds a candidate's cookie, see US-03):
+
+```bash
+curl -i -b cookies.txt -F "file=@api/test/fixtures/cv.pdf" http://localhost:3000/api/uploads/cv
+curl -i -b cookies.txt -F "file=@api/test/fixtures/linkedin.md" http://localhost:3000/api/uploads/linkedin
+
+# As an admin
+curl -b admin-cookies.txt -o raw.pdf http://localhost:3000/api/uploads/1/raw
+```
+
+Then check the database:
+
+```sql
+SELECT f.id, f.source_type, f.original_filename, f.file_size, f.mime_type,
+  f.storage_location, f.validated_at, j.id AS job_id, j.status
+FROM uploaded_files f
+JOIN processing_jobs j ON j.file_id = f.id
+ORDER BY f.id DESC;
+```
+
+**Queue dependency:** sending the job needs `shared/src/queue.js` (`startBoss`, `enqueueJob`) from US-05. Once the rows are committed the upload is accepted (`202`), even if sending the job fails: the job stays `queued` in `processing_jobs` and the API logs `Sending job <id> to the queue failed`. Until US-05 is merged every real upload ends this way (the log shows `Cannot find module 'shared/src/queue'`). Such a job is processed only after it's sent to the queue, so US-05 must send every `queued` job that isn't in pg-boss yet (for example at worker startup, using the job id as the pg-boss singleton key so it's never queued twice). The tests use a fake queue and don't need it.
+
+Run the upload tests (no database, no queue needed; sample files are in `api/test/fixtures/`):
+
+```bash
+npm test -- api/test/upload.test.js --verbose
+```
+
+### Candidate file status (US-11)
+
+#### `GET /api/candidate/files`
+
+Returns all accepted CV and LinkedIn files uploaded by the currently authenticated candidate.
+
+**Authentication:** Requires a valid `access_token` cookie and a candidate account with a verified email.
+
+**Request:**
+
+- No path parameters.
+- No query parameters.
+- No request body.
+- The candidate ID is obtained from the authenticated session. Candidates can only access their own files.
+
+**Success response (`200`):**
+
+```json
+{
+  "files": [
+    {
+      "id": 12,
+      "name": "my_cv.pdf",
+      "type": "cv",
+      "uploadedAt": "2026-11-13T10:30:00.000Z",
+      "status": "Processing",
+      "message": null
+    }
+  ]
+}
+```
+
+**Response fields:**
+
+- `id`: File ID.
+- `name`: Original uploaded filename.
+- `type`: `cv` or `linkedin`.
+- `uploadedAt`: Upload timestamp.
+- `status`: User-facing processing status.
+- `message`: Failure explanation and retry instruction, or `null` when there is no failure.
+
+**Status mapping:**
+
+| Processing job status   | Candidate-facing status |
+| ----------------------- | ----------------------- |
+| `queued`                | `Processing`            |
+| `processing`            | `Processing`            |
+| `completed`             | `Completed`             |
+| `completed_with_review` | `Completed`             |
+| `failed`                | `Failed`                |
+
+Failed files include a plain-language error message and the instruction to upload an updated file to try again.
+
+**Error responses:**
+
+| Status | When                                   | Body                                                                                   |
+| ------ | -------------------------------------- | -------------------------------------------------------------------------------------- |
+| `401`  | Not logged in or invalid/expired token | `{"errors":{"auth":"Log in to continue"}}`                                             |
+| `403`  | User is not an authorized candidate    | `{"errors":{"auth":"You do not have access to this resource"}}`                        |
+| `403`  | Candidate email is not verified        | `{"errors":{"auth":"Verify your email to continue"},"reason":"verification_required"}` |
+
+**Important behavior:**
+
+- Only accepted files are returned.
+- Rejected uploads are not stored and do not appear in this list. Their rejection messages are returned directly by the upload endpoint (`POST /api/uploads/:sourceType`).
+- The frontend should refresh the list periodically while at least one file has status `Processing`.
+- Extracted data and internal human-review details are not exposed to candidates.
+
+See the shared Apidog workspace for request and response examples.
+
 ## Testing and Code Quality
 
 - **Run Tests**:
@@ -289,10 +546,13 @@ npx jest api/test/otp.test.js --verbose
   To run a single test file and print every test name:
 
   ```bash
-  npx jest <path-to-test-file> --verbose
+  npm test -- <path-to-test-file> --verbose
   ```
 
+  `npm test` runs Jest with `node --experimental-vm-modules`, which the PDF extractor (unpdf) needs inside Jest. Plain `npx jest` works for the other tests but fails the PDF upload tests.
+
   For the extraction data contract (schema, tests and field-to-column mapping), see [shared/README.md](shared/README.md).
+  For the queue and worker (job flow, retries, steps), see [worker/README.md](worker/README.md)
 
 - **Run Tests Sequentially**:
 
