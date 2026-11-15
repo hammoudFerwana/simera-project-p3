@@ -1,5 +1,6 @@
 const { createCallLlmStep } = require('./call-llm');
 const { createCheckEmailStep } = require('./check-email');
+const { createNormalizeSkillsStep } = require('./normalize-skills');
 const { createValidateWithCodeStep } = require('./validate-with-code');
 const { mapExtractionToStorage } = require('shared/src/mapper');
 const { writeExtraction } = require('shared/src/storage-writer');
@@ -17,7 +18,8 @@ const createStoreStep = () => async (ctx) => {
 
   const mappedData = mapExtractionToStorage(
     ctx.extraction,
-    ctx.failedChecks || []
+    ctx.failedChecks || [],
+    ctx.skillResolutions || []
   );
 
   await writeExtraction({
@@ -34,7 +36,7 @@ module.exports = [
   stub('extractTextAndLinks'), // US-06
   createCheckEmailStep({ db }),
   createCallLlmStep({ db }),
-  stub('normalizeSkills'), // US-13
+  createNormalizeSkillsStep({ db }), // US-13
   createValidateWithCodeStep(), // US-09, US-14
   stub('compareAndApplyLatest'), // US-15, US-16, US-17
   createStoreStep() // US-10

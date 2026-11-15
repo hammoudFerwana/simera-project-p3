@@ -39,9 +39,22 @@ Each step is `async (ctx) => ctx`. It throws `TemporaryError` or `PermanentError
 
 To replace a stub, change the entry in `worker/src/steps/index.js`. The orchestrator does not change.
 
+### Step 4: Normalize skills (US-13)
+
+Normalizes raw extracted skill names to canonical names from the universal skills list:
+
+- Exact matches (case-insensitive, trimmed) resolve immediately via code without calling the LLM.
+- Fuzzy matching using Fuse.js searches canonical names with configurable minimum similarity (`SKILL_MIN_SIMILARITY`, default 0.5), returning up to 50 candidates.
+- Skills with candidates are batched into a single LLM request per file for canonical selection.
+- Code validation enforces that the LLM-selected name is one of the candidates provided. Otherwise, the skill is marked as unknown.
+- Skills without candidates above the threshold are marked unknown without calling the LLM.
+- Empty skill names are skipped.
+- Resolves skills into `ctx.skillResolutions`, logging only `{ jobId, matched, unknown, llmRequests }` without sensitive text.
+
 ### Step 5: Validate with code (US-09, US-14)
 
 `validateWithCode` runs deterministic code checks against `ctx.extraction`:
+
 - Evidence verification: checks that every non-null wrapper's evidence appears in `ctx.text` or `ctx.links` (normalized with Unicode NFKC, lowercase, single-space whitespace). Missing evidence adds `evidence_not_found`.
 - Format normalization:
   - `candidate.phone`: normalized to E.164 via `libphonenumber-js`. Numbers without country code fail with `phone_without_country_code`; invalid numbers fail with `invalid_phone`.
@@ -49,6 +62,7 @@ To replace a stub, change the entry in `worker/src/steps/index.js`. The orchestr
   - `languages[].language`: normalized to its English name via `Intl.DisplayNames`. Invalid languages fail with `invalid_language`.
   - URLs (`links[].url`, `work_experience[].company_url`, `certifications[].credential_url`, `projects[].project_url`, `publications[].url`): verified with http/https and domain dot checks, prepending `https://` for bare domains. Invalid URLs fail with `invalid_url`.
 - Safe failure handling: failed checks never change or drop values. Each failure records `{ section, index, field, reason }` in `ctx.failedChecks` and is logged with `jobId`, `section`, `index`, `field`, and `reason` only (never the value or evidence).
+
 ### Check email step (US-07)
 
 Checks that emails found in the file match the candidate's account login email (`users.email` via `candidate_profiles.user_id`).
@@ -85,7 +99,6 @@ Step 3 (`worker/src/steps/call-llm.js`) performs structured extraction using an 
 - On validation or JSON parse failure, tracks errors in an in-memory Map keyed by `jobId` and throws `TemporaryError`. The next retry attempt feeds the error list back to the LLM to request corrected output.
 - On success, sets `ctx.extraction`, deletes the retry feedback entry, and records metadata (`extracted_at`, `model_name`, `model_version`, `prompt_version`, `document_language`, `extraction_warnings`) in `processing_jobs`.
 - Never logs CV text, prompt messages, or LLM output. Logs only job IDs, attempt outcomes, and error classes.
-
 
 ## Tests
 

@@ -708,6 +708,86 @@ async function saveLinks(client, candidateId, linkItems) {
 
   return savedItems;
 }
+
+async function saveSkills(client, { candidateId, fileId, jobId, skills }) {
+  const savedSkills = {
+    matched: [],
+    unknown: []
+  };
+  const savedProvenance = [];
+
+  for (const item of skills.matched) {
+    const { skillId, fields } = item;
+    const proficiencyLevel = fields.proficiency_level?.value ?? null;
+    const monthsOfExperience = fields.months_of_experience?.value ?? null;
+
+    const result = await client.query(
+      `INSERT INTO candidate_skills (
+        candidate_id,
+        skill_id,
+        proficiency_level,
+        months_of_experience,
+        created_at
+      )
+      VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+      ON CONFLICT (candidate_id, skill_id)
+      DO UPDATE SET
+        proficiency_level = COALESCE(candidate_skills.proficiency_level, EXCLUDED.proficiency_level),
+        months_of_experience = COALESCE(candidate_skills.months_of_experience, EXCLUDED.months_of_experience)
+      RETURNING *`,
+      [candidateId, skillId, proficiencyLevel, monthsOfExperience]
+    );
+
+    const savedRow = result.rows[0];
+    if (!savedRow?.id) {
+      throw new Error('Failed to save candidate skill.');
+    }
+
+    const itemProvenance = await saveProvenance(client, {
+      candidateId,
+      itemType: 'candidate_skills',
+      itemId: savedRow.id,
+      jobId,
+      fields,
+      storedRow: savedRow
+    });
+
+    savedProvenance.push(...itemProvenance);
+    savedSkills.matched.push(savedRow);
+  }
+
+  for (const item of skills.unknown) {
+    const { skillName, confidence, evidence } = item;
+
+    const result = await client.query(
+      `INSERT INTO unknown_skills (
+        candidate_id,
+        skill_name,
+        source_file_id,
+        confidence,
+        evidence,
+        status,
+        created_at
+      )
+      SELECT $1::integer, $2::varchar, $3::integer, $4::float, $5::text, 'pending', CURRENT_TIMESTAMP
+      WHERE NOT EXISTS (
+        SELECT 1 FROM unknown_skills
+        WHERE candidate_id = $1
+          AND source_file_id = $3
+          AND LOWER(skill_name) = LOWER($2)
+      )
+      RETURNING *`,
+      [candidateId, skillName, fileId, confidence ?? null, evidence]
+    );
+
+    if (result.rows.length > 0) {
+      savedSkills.unknown.push(result.rows[0]);
+    }
+  }
+
+  return { savedSkills, savedProvenance };
+}
+
 const PROVENANCE_TABLES = {
   candidate_profile: 'candidate_profiles',
   education: 'education',
@@ -718,7 +798,8 @@ const PROVENANCE_TABLES = {
   publications: 'publications',
   volunteering: 'volunteering',
   candidate_languages: 'candidate_languages',
-  candidate_links: 'candidate_links'
+  candidate_links: 'candidate_links',
+  candidate_skills: 'candidate_skills'
 };
 function isSameStoredValue(itemType, fieldName, storedValue, extractedValue) {
   if (itemType === 'candidate_links' && fieldName === 'url') {
@@ -914,6 +995,95 @@ function validateMappedItems(items, itemType) {
     sourceIndexes.add(item.sourceIndex);
   }
 }
+
+function validateMappedSkills(skills) {
+  if (!skills || typeof skills !== 'object' || Array.isArray(skills)) {
+    throw new TypeError('mappedData.skills must be an object.');
+  }
+
+  if (!Array.isArray(skills.matched)) {
+    throw new TypeError('mappedData.skills.matched must be an array.');
+  }
+
+  if (!Array.isArray(skills.unknown)) {
+    throw new TypeError('mappedData.skills.unknown must be an array.');
+  }
+
+  for (const item of skills.matched) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      throw new TypeError('Invalid matched skill item.');
+    }
+
+    if (!Number.isInteger(item.sourceIndex) || item.sourceIndex < 0) {
+      throw new TypeError('Invalid sourceIndex in matched skills.');
+    }
+
+    if (!Number.isInteger(item.skillId) || item.skillId <= 0) {
+      throw new TypeError('skillId must be a positive integer.');
+    }
+
+    if (
+      !item.fields ||
+      typeof item.fields !== 'object' ||
+      Array.isArray(item.fields)
+    ) {
+      throw new TypeError('Invalid fields in matched skills.');
+    }
+
+    for (const [fieldName, wrapper] of Object.entries(item.fields)) {
+      if (
+        !wrapper ||
+        typeof wrapper !== 'object' ||
+        Array.isArray(wrapper) ||
+        !Object.prototype.hasOwnProperty.call(wrapper, 'value')
+      ) {
+        throw new TypeError(
+          `Invalid field wrapper: candidate_skills.${fieldName}.`
+        );
+      }
+      const value = wrapper.value;
+
+      if (
+        value !== null &&
+        (!['string', 'number', 'boolean'].includes(typeof value) ||
+          (typeof value === 'number' && !Number.isFinite(value)))
+      ) {
+        throw new TypeError(
+          `Invalid field value: candidate_skills.${fieldName}.`
+        );
+      }
+    }
+  }
+
+  for (const item of skills.unknown) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      throw new TypeError('Invalid unknown skill item.');
+    }
+
+    if (!Number.isInteger(item.sourceIndex) || item.sourceIndex < 0) {
+      throw new TypeError('Invalid sourceIndex in unknown skills.');
+    }
+
+    if (typeof item.skillName !== 'string' || !item.skillName.trim()) {
+      throw new TypeError('Invalid skillName in unknown skills.');
+    }
+
+    if (typeof item.evidence !== 'string' || !item.evidence.trim()) {
+      throw new TypeError('Invalid evidence in unknown skills.');
+    }
+
+    if (
+      item.confidence !== null &&
+      item.confidence !== undefined &&
+      (typeof item.confidence !== 'number' ||
+        item.confidence < 0 ||
+        item.confidence > 1 ||
+        !Number.isFinite(item.confidence))
+    ) {
+      throw new TypeError('Invalid confidence in unknown skills.');
+    }
+  }
+}
 function mergeItemsByDeduplicationKey(itemType, items) {
   const groups = new Map();
 
@@ -1026,6 +1196,10 @@ async function writeExtraction({
     }
   }
 
+  if (mappedData.skills !== undefined) {
+    validateMappedSkills(mappedData.skills);
+  }
+
   const client = await pool.connect();
   let transactionStarted = false;
   let releaseError = null;
@@ -1037,7 +1211,8 @@ async function writeExtraction({
     const result = await client.query(
       `SELECT
          cp.id AS candidate_id,
-         pj.id AS job_id
+         pj.id AS job_id,
+         uf.id AS file_id
        FROM users u
        JOIN candidate_profiles cp
          ON cp.user_id = u.id
@@ -1054,7 +1229,7 @@ async function writeExtraction({
       throw new Error('Processing job does not belong to the given user.');
     }
 
-    const { candidate_id: candidateId } = result.rows[0];
+    const { candidate_id: candidateId, file_id: fileId } = result.rows[0];
 
     const processing = mappedData.processing ?? {};
 
@@ -1306,6 +1481,19 @@ async function writeExtraction({
       savedProvenance.push(...itemProvenance);
     }
 
+    let savedSkills = { matched: [], unknown: [] };
+    if (mappedData.skills) {
+      const { savedSkills: sSkills, savedProvenance: sProvenance } =
+        await saveSkills(client, {
+          candidateId,
+          fileId,
+          jobId,
+          skills: mappedData.skills
+        });
+      savedSkills = sSkills;
+      savedProvenance.push(...sProvenance);
+    }
+
     await client.query('COMMIT');
     transactionStarted = false;
 
@@ -1321,6 +1509,7 @@ async function writeExtraction({
       volunteering: savedVolunteeringItems,
       languages: savedLanguageItems,
       links: savedLinks,
+      skills: savedSkills,
       provenance: savedProvenance,
       reviewCandidates
     };
