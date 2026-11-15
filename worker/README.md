@@ -49,6 +49,14 @@ To replace a stub, change the entry in `worker/src/steps/index.js`. The orchestr
   - `languages[].language`: normalized to its English name via `Intl.DisplayNames`. Invalid languages fail with `invalid_language`.
   - URLs (`links[].url`, `work_experience[].company_url`, `certifications[].credential_url`, `projects[].project_url`, `publications[].url`): verified with http/https and domain dot checks, prepending `https://` for bare domains. Invalid URLs fail with `invalid_url`.
 - Safe failure handling: failed checks never change or drop values. Each failure records `{ section, index, field, reason }` in `ctx.failedChecks` and is logged with `jobId`, `section`, `index`, `field`, and `reason` only (never the value or evidence).
+### Check email step (US-07)
+
+Checks that emails found in the file match the candidate's account login email (`users.email` via `candidate_profiles.user_id`).
+
+- Pure function `findEmails(text, links)` extracts lowercase, de-duplicated emails from document text and `mailto:` links.
+- Pure function `decideEmail(fileEmails, loginEmail)` permits continuation if the file contains the account email or contains no emails at all; otherwise reports mismatch.
+- On mismatch, throws `PermanentError('The file contains an email that does not match your account email')`.
+- On continuation, sets `ctx.loginEmail` to the lowercase account email.
 
 ## Add a job from the API (US-04, US-22)
 
@@ -63,7 +71,21 @@ To replace a stub, change the entry in `worker/src/steps/index.js`. The orchestr
 - `src/orchestrator.js`: runs the steps in order.
 - `scripts/smoke-queue.js`: manual check of the ordering with real pg-boss.
 - `scripts/smoke-restart.js`: manual check that a job finishes after the worker is killed.
+- `scripts/smoke-llm.js`: manual check of LLM extraction on a CV file using live AI Studio credentials.
 - `../shared/src/queue.js`: pg-boss setup, `enqueueJob`, `enqueueUnfinishedJobs`, `startWorker` (shared with the API).
+
+## LLM Extraction Step (US-08)
+
+Step 3 (`worker/src/steps/call-llm.js`) performs structured extraction using an LLM.
+
+- Formulates extraction prompt (`worker/src/llm/extraction-prompt.js`, version `extraction-v1`) with JSON Schema, extracted links, processing date, and sanitized CV text (preventing closing tag injection).
+- Calls the LLM client with `response_format: { type: 'json_object' }`.
+- Strips markdown code fences if returned.
+- Validates the parsed object against the EN-03 Zod contract (`shared/src/extraction/schema.js`).
+- On validation or JSON parse failure, tracks errors in an in-memory Map keyed by `jobId` and throws `TemporaryError`. The next retry attempt feeds the error list back to the LLM to request corrected output.
+- On success, sets `ctx.extraction`, deletes the retry feedback entry, and records metadata (`extracted_at`, `model_name`, `model_version`, `prompt_version`, `document_language`, `extraction_warnings`) in `processing_jobs`.
+- Never logs CV text, prompt messages, or LLM output. Logs only job IDs, attempt outcomes, and error classes.
+
 
 ## Tests
 

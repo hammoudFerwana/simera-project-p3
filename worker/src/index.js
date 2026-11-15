@@ -7,7 +7,16 @@ const {
 } = require('shared/src/queue');
 const { processJob } = require('./process-job');
 
-const config = loadConfig();
+const config = loadConfig({
+  requiredVars: [
+    'NODE_ENV',
+    'API_PORT',
+    'DATABASE_URL',
+    'LLM_BASE_URL',
+    'LLM_MODEL',
+    'LLM_API_KEY'
+  ]
+});
 
 async function main() {
   const boss = await startBoss(config.DATABASE_URL);
