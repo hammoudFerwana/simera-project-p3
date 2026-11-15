@@ -1,4 +1,3 @@
-
 /**
  * Maps validated extraction data into a storage-friendly structure.
  *
@@ -25,22 +24,62 @@ function mapExtractionToStorage(validatedExtraction, failedChecks = []) {
         check.field === fieldName
     );
 
+  const hasValue = (fields, fieldName) => {
+    const value = fields[fieldName]?.value;
+
+    return (
+      value !== null &&
+      value !== undefined &&
+      (typeof value !== 'string' || value.trim() !== '')
+    );
+  };
+
+  const requiredFields = {
+    work_experience: ['job_title', 'company_name'],
+    education: ['institution_name'],
+    certifications: ['name'],
+    projects: ['name'],
+    awards: ['name'],
+    publications: ['title'],
+    languages: ['language'],
+    links: ['url']
+  };
+
   const mapItems = (items, section, excludedFields = []) =>
-    items.map((item, index) => ({
-      sourceIndex: index,
-      fields: Object.fromEntries(
-        Object.entries(item)
-          .filter(
-            ([fieldName]) =>
-              !excludedFields.includes(fieldName) &&
-              !isFailedField(section, index, fieldName)
-          )
-          .map(([fieldName, wrapper]) => [
-            fieldName,
-            { ...wrapper }
-          ])
-      )
-    }));
+    items
+      .map((item, index) => {
+        const fields = Object.fromEntries(
+          Object.entries(item)
+            .filter(
+              ([fieldName]) =>
+                !excludedFields.includes(fieldName) &&
+                !isFailedField(section, index, fieldName)
+            )
+            .map(([fieldName, wrapper]) => [fieldName, { ...wrapper }])
+        );
+
+        const required = requiredFields[section] || [];
+
+        const hasRequiredFields = required.every((fieldName) =>
+          hasValue(fields, fieldName)
+        );
+
+        const hasVolunteeringValue =
+          section !== 'volunteering' ||
+          ['organization', 'role', 'start_date'].some((fieldName) =>
+            hasValue(fields, fieldName)
+          );
+
+        if (!hasRequiredFields || !hasVolunteeringValue) {
+          return null;
+        }
+
+        return {
+          sourceIndex: index,
+          fields
+        };
+      })
+      .filter(Boolean);
 
   return {
     processing: {
@@ -50,13 +89,8 @@ function mapExtractionToStorage(validatedExtraction, failedChecks = []) {
 
     profile: Object.fromEntries(
       Object.entries(candidate)
-        .filter(
-          ([fieldName]) => !isFailedField('candidate', null, fieldName)
-        )
-        .map(([fieldName, wrapper]) => [
-          fieldName,
-          { ...wrapper }
-        ])
+        .filter(([fieldName]) => !isFailedField('candidate', null, fieldName))
+        .map(([fieldName, wrapper]) => [fieldName, { ...wrapper }])
     ),
 
     items: {
@@ -74,14 +108,8 @@ function mapExtractionToStorage(validatedExtraction, failedChecks = []) {
       ),
       projects: mapItems(validatedExtraction.projects, 'projects'),
       awards: mapItems(validatedExtraction.awards, 'awards'),
-      publications: mapItems(
-        validatedExtraction.publications,
-        'publications'
-      ),
-      volunteering: mapItems(
-        validatedExtraction.volunteering,
-        'volunteering'
-      )
+      publications: mapItems(validatedExtraction.publications, 'publications'),
+      volunteering: mapItems(validatedExtraction.volunteering, 'volunteering')
     }
   };
 }

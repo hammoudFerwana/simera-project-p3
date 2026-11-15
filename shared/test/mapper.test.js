@@ -1,4 +1,3 @@
-
 const { mapExtractionToStorage } = require('../src/mapper');
 
 const v = (value, evidence = String(value), confidence = 0.9) => ({
@@ -122,8 +121,17 @@ describe('mapExtractionToStorage', () => {
     expect(result.profile.first_name).toEqual(input.candidate.first_name);
   });
 
-  test('excludes failed list fields but preserves other fields and source index', () => {
+  test('excludes entire list items when a required field fails validation', () => {
     const input = buildValidExtraction();
+
+    input.work_experience.push({
+      job_title: v('Frontend Developer'),
+      company_name: v('Beta'),
+      start_date: v('2023-01'),
+      end_date: empty(),
+      is_current: v(false),
+      location: empty()
+    });
 
     const failedChecks = [
       {
@@ -135,16 +143,102 @@ describe('mapExtractionToStorage', () => {
     ];
 
     const result = mapExtractionToStorage(input, failedChecks);
-    const item = result.items.work_experience[0];
 
-    expect(item.sourceIndex).toBe(0);
-    expect(item.fields).not.toHaveProperty('company_name');
-    expect(item.fields.job_title).toEqual(
-      input.work_experience[0].job_title
+    expect(result.items.work_experience).toHaveLength(1);
+    expect(result.items.work_experience[0].sourceIndex).toBe(1);
+    expect(result.items.work_experience[0].fields.company_name).toEqual(
+      input.work_experience[1].company_name
+    );
+  });
+  test.each([
+    ['education', 'institution_name'],
+    ['certifications', 'name'],
+    ['projects', 'name'],
+    ['awards', 'name'],
+    ['publications', 'title'],
+    ['languages', 'language'],
+    ['links', 'url']
+  ])(
+    'excludes %s items when required field %s fails validation',
+    (section, field) => {
+      const input = buildValidExtraction();
+      if (input[section].length === 0) {
+        input[section].push({ [field]: v('Valid value') });
+      }
+      const failedChecks = [
+        {
+          section,
+          index: 0,
+          field,
+          reason: 'validation_failure'
+        }
+      ];
+
+      const result = mapExtractionToStorage(input, failedChecks);
+
+      expect(result.items[section]).toHaveLength(0);
+    }
+  );
+
+  test('keeps volunteering item when at least one required deduplication field remains', () => {
+    const input = buildValidExtraction();
+
+    input.volunteering = [
+      {
+        organization: v('Community Center'),
+        role: v('Volunteer'),
+        start_date: v('2022-01')
+      }
+    ];
+
+    const failedChecks = [
+      {
+        section: 'volunteering',
+        index: 0,
+        field: 'organization',
+        reason: 'validation_failure'
+      },
+      {
+        section: 'volunteering',
+        index: 0,
+        field: 'role',
+        reason: 'validation_failure'
+      }
+    ];
+
+    const result = mapExtractionToStorage(input, failedChecks);
+
+    expect(result.items.volunteering).toHaveLength(1);
+    expect(result.items.volunteering[0].sourceIndex).toBe(0);
+    expect(result.items.volunteering[0].fields.start_date).toEqual(
+      input.volunteering[0].start_date
     );
   });
 
+  test('excludes volunteering item when all deduplication fields fail validation', () => {
+    const input = buildValidExtraction();
 
+    input.volunteering = [
+      {
+        organization: v('Community Center'),
+        role: v('Volunteer'),
+        start_date: v('2022-01')
+      }
+    ];
+
+    const failedChecks = ['organization', 'role', 'start_date'].map(
+      (field) => ({
+        section: 'volunteering',
+        index: 0,
+        field,
+        reason: 'validation_failure'
+      })
+    );
+
+    const result = mapExtractionToStorage(input, failedChecks);
+
+    expect(result.items.volunteering).toHaveLength(0);
+  });
   test('maps list items with their original source indexes', () => {
     const input = buildValidExtraction();
 
@@ -161,9 +255,9 @@ describe('mapExtractionToStorage', () => {
 
     const result = mapExtractionToStorage(input);
 
-    expect(
-      result.items.work_experience[0].fields.job_title
-    ).toEqual(input.work_experience[0].job_title);
+    expect(result.items.work_experience[0].fields.job_title).toEqual(
+      input.work_experience[0].job_title
+    );
   });
 
   test('preserves false values', () => {
@@ -179,9 +273,9 @@ describe('mapExtractionToStorage', () => {
 
     const result = mapExtractionToStorage(input);
 
-    expect(
-      result.items.work_experience[0].fields
-    ).not.toHaveProperty('duration_months');
+    expect(result.items.work_experience[0].fields).not.toHaveProperty(
+      'duration_months'
+    );
   });
 
   test('does not include skills in the mapped output', () => {

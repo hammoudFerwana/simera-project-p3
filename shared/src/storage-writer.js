@@ -1,5 +1,5 @@
-
 const pool = require('./database');
+const { PermanentError } = require('./errors');
 const {
   buildDeduplicationKey,
   normalizeUrlForStorage,
@@ -11,10 +11,7 @@ async function saveEducation(client, candidateId, educationItems) {
   for (const item of educationItems) {
     const { fields, sourceIndex } = item;
 
-    const deduplicationKey = buildDeduplicationKey(
-      'education',
-      fields
-    );
+    const deduplicationKey = buildDeduplicationKey('education', fields);
 
     const values = {
       institution_name: fields.institution_name?.value ?? null,
@@ -31,11 +28,10 @@ async function saveEducation(client, candidateId, educationItems) {
     };
 
     if (!values.institution_name) {
-      throw new Error(
+      throw new PermanentError(
         `Education item at source index ${sourceIndex} has no institution name.`
       );
     }
-
 
     const result = await client.query(
       `INSERT INTO education (
@@ -90,11 +86,9 @@ async function saveEducation(client, candidateId, educationItems) {
 
     const savedItem = result.rows[0];
 
-if (!savedItem?.id) {
-  throw new Error('Failed to save item.');
-}
-
-
+    if (!savedItem?.id) {
+      throw new Error('Failed to save item.');
+    }
 
     savedItems.push({
       itemType: 'education',
@@ -111,18 +105,13 @@ if (!savedItem?.id) {
   return savedItems;
 }
 
-
-
 async function saveWorkExperience(client, candidateId, workItems) {
   const savedItems = [];
 
   for (const item of workItems) {
     const { fields, sourceIndex } = item;
 
-    const deduplicationKey = buildDeduplicationKey(
-      'work_experience',
-      fields
-    );
+    const deduplicationKey = buildDeduplicationKey('work_experience', fields);
 
     const values = {
       job_title: fields.job_title?.value ?? null,
@@ -141,7 +130,7 @@ async function saveWorkExperience(client, candidateId, workItems) {
     };
 
     if (!values.job_title || !values.company_name) {
-      throw new Error(
+      throw new PermanentError(
         `Work experience item at source index ${sourceIndex} must have job title and company name.`
       );
     }
@@ -205,27 +194,24 @@ async function saveWorkExperience(client, candidateId, workItems) {
 
     const savedItem = result.rows[0];
 
-if (!savedItem?.id) {
-  throw new Error('Failed to save item.');
-}
-
-
+    if (!savedItem?.id) {
+      throw new Error('Failed to save item.');
+    }
 
     savedItems.push({
-  itemType: 'work_experience',
-  itemId: savedItem.id,
-  deduplicationKey,
-  sourceIndex,
-  sourceIndexes: item.sourceIndexes ?? [sourceIndex],
-  fields,
-  reviewFields: item.reviewFields ?? {},
-  storedRow: savedItem
-});
+      itemType: 'work_experience',
+      itemId: savedItem.id,
+      deduplicationKey,
+      sourceIndex,
+      sourceIndexes: item.sourceIndexes ?? [sourceIndex],
+      fields,
+      reviewFields: item.reviewFields ?? {},
+      storedRow: savedItem
+    });
   }
 
   return savedItems;
 }
-
 
 async function saveCertifications(client, candidateId, certificationItems) {
   const savedItems = [];
@@ -233,13 +219,12 @@ async function saveCertifications(client, candidateId, certificationItems) {
   for (const item of certificationItems) {
     const fields = item.fields;
 
-    const getValue = (fieldName) =>
-      fields[fieldName]?.value ?? null;
+    const getValue = (fieldName) => fields[fieldName]?.value ?? null;
 
     const name = getValue('name');
 
     if (!name) {
-      throw new Error('Certification name is required.');
+      throw new PermanentError('Certification name is required.');
     }
 
     const values = {
@@ -252,10 +237,7 @@ async function saveCertifications(client, candidateId, certificationItems) {
       description: getValue('description')
     };
 
-    const deduplicationKey = buildDeduplicationKey(
-      'certifications',
-      fields
-    );
+    const deduplicationKey = buildDeduplicationKey('certifications', fields);
 
     const result = await client.query(
       `INSERT INTO certifications (
@@ -313,20 +295,20 @@ async function saveCertifications(client, candidateId, certificationItems) {
 
     const savedItem = result.rows[0];
 
-if (!savedItem?.id) {
-  throw new Error('Failed to save item.');
-}
+    if (!savedItem?.id) {
+      throw new Error('Failed to save item.');
+    }
 
     savedItems.push({
-  itemType: 'certifications',
-  itemId: savedItem.id,
-  deduplicationKey,
-  sourceIndex: item.sourceIndex,
-  sourceIndexes: item.sourceIndexes ?? [item.sourceIndex],
-  fields,
-  reviewFields: item.reviewFields ?? {},
-  storedRow: savedItem
-});
+      itemType: 'certifications',
+      itemId: savedItem.id,
+      deduplicationKey,
+      sourceIndex: item.sourceIndex,
+      sourceIndexes: item.sourceIndexes ?? [item.sourceIndex],
+      fields,
+      reviewFields: item.reviewFields ?? {},
+      storedRow: savedItem
+    });
   }
 
   return savedItems;
@@ -338,13 +320,12 @@ async function saveProjects(client, candidateId, projectItems) {
   for (const item of projectItems) {
     const fields = item.fields;
 
-    const getValue = (fieldName) =>
-      fields[fieldName]?.value ?? null;
+    const getValue = (fieldName) => fields[fieldName]?.value ?? null;
 
     const name = getValue('name');
 
     if (!name) {
-      throw new Error('Project name is required.');
+      throw new PermanentError('Project name is required.');
     }
 
     const values = {
@@ -356,10 +337,7 @@ async function saveProjects(client, candidateId, projectItems) {
       end_date: getValue('end_date')
     };
 
-    const deduplicationKey = buildDeduplicationKey(
-      'projects',
-      fields
-    );
+    const deduplicationKey = buildDeduplicationKey('projects', fields);
 
     const result = await client.query(
       `INSERT INTO projects (
@@ -394,22 +372,22 @@ async function saveProjects(client, candidateId, projectItems) {
       ]
     );
 
-   const savedItem = result.rows[0];
+    const savedItem = result.rows[0];
 
-if (!savedItem?.id) {
-  throw new Error('Failed to save item.');
-}
+    if (!savedItem?.id) {
+      throw new Error('Failed to save item.');
+    }
 
     savedItems.push({
-  itemType: 'projects',
-  itemId: savedItem.id,
-  deduplicationKey,
-  sourceIndex: item.sourceIndex,
-  sourceIndexes: item.sourceIndexes ?? [item.sourceIndex],
-  fields,
-  reviewFields: item.reviewFields ?? {},
-  storedRow: savedItem
-});
+      itemType: 'projects',
+      itemId: savedItem.id,
+      deduplicationKey,
+      sourceIndex: item.sourceIndex,
+      sourceIndexes: item.sourceIndexes ?? [item.sourceIndex],
+      fields,
+      reviewFields: item.reviewFields ?? {},
+      storedRow: savedItem
+    });
   }
 
   return savedItems;
@@ -429,7 +407,7 @@ async function saveAwards(client, candidateId, awardItems) {
     };
 
     if (!values.name) {
-      throw new Error('Award name is required.');
+      throw new PermanentError('Award name is required.');
     }
 
     const deduplicationKey = buildDeduplicationKey('awards', fields);
@@ -468,15 +446,15 @@ async function saveAwards(client, candidateId, awardItems) {
     }
 
     savedItems.push({
-  itemType: 'awards',
-  itemId: savedItem.id,
-  deduplicationKey,
-  sourceIndex: item.sourceIndex,
-  sourceIndexes: item.sourceIndexes ?? [item.sourceIndex],
-  fields,
-  reviewFields: item.reviewFields ?? {},
-  storedRow: savedItem
-});
+      itemType: 'awards',
+      itemId: savedItem.id,
+      deduplicationKey,
+      sourceIndex: item.sourceIndex,
+      sourceIndexes: item.sourceIndexes ?? [item.sourceIndex],
+      fields,
+      reviewFields: item.reviewFields ?? {},
+      storedRow: savedItem
+    });
   }
 
   return savedItems;
@@ -496,13 +474,10 @@ async function savePublications(client, candidateId, publicationItems) {
     };
 
     if (!values.title) {
-      throw new Error('Publication title is required.');
+      throw new PermanentError('Publication title is required.');
     }
 
-    const deduplicationKey = buildDeduplicationKey(
-      'publications',
-      fields
-    );
+    const deduplicationKey = buildDeduplicationKey('publications', fields);
 
     const result = await client.query(
       `INSERT INTO publications (
@@ -541,15 +516,15 @@ async function savePublications(client, candidateId, publicationItems) {
     }
 
     savedItems.push({
-  itemType: 'publications',
-  itemId: savedItem.id,
-  deduplicationKey,
-  sourceIndex: item.sourceIndex,
-  sourceIndexes: item.sourceIndexes ?? [item.sourceIndex],
-  fields,
-  reviewFields: item.reviewFields ?? {},
-  storedRow: savedItem
-});
+      itemType: 'publications',
+      itemId: savedItem.id,
+      deduplicationKey,
+      sourceIndex: item.sourceIndex,
+      sourceIndexes: item.sourceIndexes ?? [item.sourceIndex],
+      fields,
+      reviewFields: item.reviewFields ?? {},
+      storedRow: savedItem
+    });
   }
 
   return savedItems;
@@ -569,23 +544,18 @@ async function saveVolunteering(client, candidateId, volunteeringItems) {
       is_current: fields.is_current?.value ?? null
     };
     const hasDeduplicationValue = [
-  fields.organization?.value,
-  fields.role?.value,
-  fields.start_date?.value
-].some(
-  (value) => typeof value === 'string' && value.trim() !== ''
-);
+      fields.organization?.value,
+      fields.role?.value,
+      fields.start_date?.value
+    ].some((value) => typeof value === 'string' && value.trim() !== '');
 
-if (!hasDeduplicationValue) {
-  throw new Error(
-    'Volunteering item must contain organization, role, or start date for deduplication.'
-  );
-}
+    if (!hasDeduplicationValue) {
+      throw new PermanentError(
+        'Volunteering item must contain organization, role, or start date for deduplication.'
+      );
+    }
 
-    const deduplicationKey = buildDeduplicationKey(
-      'volunteering',
-      fields
-    );
+    const deduplicationKey = buildDeduplicationKey('volunteering', fields);
 
     const result = await client.query(
       `INSERT INTO volunteering (
@@ -627,15 +597,15 @@ if (!hasDeduplicationValue) {
     }
 
     savedItems.push({
-  itemType: 'volunteering',
-  itemId: savedItem.id,
-  deduplicationKey,
-  sourceIndex: item.sourceIndex,
-  sourceIndexes: item.sourceIndexes ?? [item.sourceIndex],
-  fields,
-  reviewFields: item.reviewFields ?? {},
-  storedRow: savedItem
-});
+      itemType: 'volunteering',
+      itemId: savedItem.id,
+      deduplicationKey,
+      sourceIndex: item.sourceIndex,
+      sourceIndexes: item.sourceIndexes ?? [item.sourceIndex],
+      fields,
+      reviewFields: item.reviewFields ?? {},
+      storedRow: savedItem
+    });
   }
 
   return savedItems;
@@ -652,7 +622,7 @@ async function saveLanguages(client, candidateId, languageItems) {
     };
 
     if (!values.language) {
-      throw new Error('Language is required.');
+      throw new PermanentError('Language is required.');
     }
 
     const result = await client.query(
@@ -669,11 +639,7 @@ async function saveLanguages(client, candidateId, languageItems) {
           EXCLUDED.proficiency_level
         )
       RETURNING *`,
-      [
-        candidateId,
-        values.language,
-        values.proficiency_level
-      ]
+      [candidateId, values.language, values.proficiency_level]
     );
 
     const savedItem = result.rows[0];
@@ -700,14 +666,14 @@ async function saveLinks(client, candidateId, linkItems) {
     const fields = item.fields;
 
     const values = {
-  link_type: fields.link_type?.value ?? 'other',
-  url: normalizeUrlForStorage(fields.url?.value),
-  label: fields.label?.value ?? null
-};
+      link_type: fields.link_type?.value ?? 'other',
+      url: normalizeUrlForStorage(fields.url?.value),
+      label: fields.label?.value ?? null
+    };
 
-if (!values.url) {
-  throw new Error('Link URL is required.');
-}
+    if (!values.url) {
+      throw new PermanentError('Link URL is required.');
+    }
 
     const result = await client.query(
       `INSERT INTO candidate_links (
@@ -722,12 +688,7 @@ if (!values.url) {
         link_type = COALESCE(candidate_links.link_type, EXCLUDED.link_type),
         label = COALESCE(candidate_links.label, EXCLUDED.label)
       RETURNING *`,
-      [
-        candidateId,
-        values.link_type,
-        values.url,
-        values.label
-      ]
+      [candidateId, values.link_type, values.url, values.label]
     );
 
     const savedItem = result.rows[0];
@@ -768,60 +729,61 @@ function isSameStoredValue(itemType, fieldName, storedValue, extractedValue) {
   }
 
   if (storedValue === null || storedValue === undefined) {
-  return extractedValue === null || extractedValue === undefined;
-}
+    return extractedValue === null || extractedValue === undefined;
+  }
 
-if (extractedValue === null || extractedValue === undefined) {
-  return false;
-}
+  if (extractedValue === null || extractedValue === undefined) {
+    return false;
+  }
 
-return storedValue === extractedValue ||
-  String(storedValue) === String(extractedValue);
+  return (
+    storedValue === extractedValue ||
+    String(storedValue) === String(extractedValue)
+  );
 }
 async function saveProvenance(
   client,
-  { candidateId, itemType, itemId, jobId, fields,
-  storedRow }
+  { candidateId, itemType, itemId, jobId, fields, storedRow }
 ) {
-    const tableName = PROVENANCE_TABLES[itemType];
+  const tableName = PROVENANCE_TABLES[itemType];
 
-if (!tableName) {
-  throw new Error(`Unsupported provenance item type: ${itemType}`);
-}
+  if (!tableName) {
+    throw new Error(`Unsupported provenance item type: ${itemType}`);
+  }
 
-if (!storedRow || typeof storedRow !== 'object') {
-  throw new Error('Stored database row is required for provenance.');
-}
-if (String(storedRow.id) !== String(itemId)) {
-  throw new Error('Stored row ID does not match itemId.');
-}
+  if (!storedRow || typeof storedRow !== 'object') {
+    throw new Error('Stored database row is required for provenance.');
+  }
+  if (String(storedRow.id) !== String(itemId)) {
+    throw new Error('Stored row ID does not match itemId.');
+  }
   const savedProvenance = [];
 
   for (const [fieldName, wrapper] of Object.entries(fields)) {
     // Skip fields that have no extracted value.
     if (
-  !wrapper ||
-  typeof wrapper !== 'object' ||
-  !Object.prototype.hasOwnProperty.call(wrapper, 'value')
-) {
-  throw new TypeError(
-    `Invalid field wrapper for ${itemType}.${fieldName}.`
-  );
-}
+      !wrapper ||
+      typeof wrapper !== 'object' ||
+      !Object.prototype.hasOwnProperty.call(wrapper, 'value')
+    ) {
+      throw new TypeError(
+        `Invalid field wrapper for ${itemType}.${fieldName}.`
+      );
+    }
 
-if (wrapper.value === null || wrapper.value === undefined) {
-  continue;
-}
-if (
-  !isSameStoredValue(
-    itemType,
-    fieldName,
-    storedRow[fieldName],
-    wrapper.value
-  )
-) {
-  continue;
-}
+    if (wrapper.value === null || wrapper.value === undefined) {
+      continue;
+    }
+    if (
+      !isSameStoredValue(
+        itemType,
+        fieldName,
+        storedRow[fieldName],
+        wrapper.value
+      )
+    ) {
+      continue;
+    }
 
     if (
       typeof wrapper.confidence !== 'number' ||
@@ -831,9 +793,7 @@ if (
       typeof wrapper.evidence !== 'string' ||
       !wrapper.evidence.trim()
     ) {
-      throw new Error(
-        `Invalid provenance data for ${itemType}.${fieldName}.`
-      );
+      throw new Error(`Invalid provenance data for ${itemType}.${fieldName}.`);
     }
 
     const provenanceResult = await client.query(
@@ -916,10 +876,7 @@ function validateMappedItems(items, itemType) {
       throw new TypeError(`Invalid ${itemType} item.`);
     }
 
-    if (
-      !Number.isInteger(item.sourceIndex) ||
-      item.sourceIndex < 0
-    ) {
+    if (!Number.isInteger(item.sourceIndex) || item.sourceIndex < 0) {
       throw new TypeError(`Invalid sourceIndex in ${itemType}.`);
     }
 
@@ -931,30 +888,24 @@ function validateMappedItems(items, itemType) {
       throw new TypeError(`Invalid fields in ${itemType}.`);
     }
     for (const [fieldName, wrapper] of Object.entries(item.fields)) {
-  if (
-    !wrapper ||
-    typeof wrapper !== 'object' ||
-    Array.isArray(wrapper) ||
-    !Object.prototype.hasOwnProperty.call(wrapper, 'value')
-  ) {
-    throw new TypeError(
-      `Invalid field wrapper: ${itemType}.${fieldName}.`
-    );
-  }
-  const value = wrapper.value;
+      if (
+        !wrapper ||
+        typeof wrapper !== 'object' ||
+        Array.isArray(wrapper) ||
+        !Object.prototype.hasOwnProperty.call(wrapper, 'value')
+      ) {
+        throw new TypeError(`Invalid field wrapper: ${itemType}.${fieldName}.`);
+      }
+      const value = wrapper.value;
 
-if (
-  value !== null &&
-  (
-    !['string', 'number', 'boolean'].includes(typeof value) ||
-    (typeof value === 'number' && !Number.isFinite(value))
-  )
-) {
-  throw new TypeError(
-    `Invalid field value: ${itemType}.${fieldName}.`
-  );
-}
-}
+      if (
+        value !== null &&
+        (!['string', 'number', 'boolean'].includes(typeof value) ||
+          (typeof value === 'number' && !Number.isFinite(value)))
+      ) {
+        throw new TypeError(`Invalid field value: ${itemType}.${fieldName}.`);
+      }
+    }
 
     if (sourceIndexes.has(item.sourceIndex)) {
       throw new Error(`Duplicate sourceIndex in ${itemType}.`);
@@ -1029,55 +980,55 @@ async function writeExtraction({
   if (
     mappedData.profile !== undefined &&
     (mappedData.profile === null ||
-    typeof mappedData.profile !== 'object' ||
-    Array.isArray(mappedData.profile))
+      typeof mappedData.profile !== 'object' ||
+      Array.isArray(mappedData.profile))
   ) {
     throw new TypeError('mappedData.profile must be an object.');
   }
   if (
     mappedData.items !== undefined &&
     (!mappedData.items ||
-    typeof mappedData.items !== 'object' ||
-    Array.isArray(mappedData.items))
-    ) {
-        throw new TypeError('mappedData.items must be an object.');
-      }
+      typeof mappedData.items !== 'object' ||
+      Array.isArray(mappedData.items))
+  ) {
+    throw new TypeError('mappedData.items must be an object.');
+  }
 
   if (!Array.isArray(reviewItems)) {
-  throw new TypeError('reviewItems must be an array.');
-}
-
-const items = mappedData.items ?? {};
-
-const itemTypes = [
-  'education',
-  'work_experience',
-  'certifications',
-  'projects',
-  'awards',
-  'publications',
-  'volunteering',
-  'languages',
-  'links'
-];
-
-for (const itemType of itemTypes) {
-  validateMappedItems(
-  items[itemType] === undefined ? [] : items[itemType],
-  itemType
-);
-}
-const allowedItemTypes = new Set(itemTypes);
-
-for (const itemType of Object.keys(items)) {
-  if (!allowedItemTypes.has(itemType)) {
-    throw new Error(`Unsupported item type: ${itemType}`);
+    throw new TypeError('reviewItems must be an array.');
   }
-}
 
-const client = await pool.connect();
+  const items = mappedData.items ?? {};
+
+  const itemTypes = [
+    'education',
+    'work_experience',
+    'certifications',
+    'projects',
+    'awards',
+    'publications',
+    'volunteering',
+    'languages',
+    'links'
+  ];
+
+  for (const itemType of itemTypes) {
+    validateMappedItems(
+      items[itemType] === undefined ? [] : items[itemType],
+      itemType
+    );
+  }
+  const allowedItemTypes = new Set(itemTypes);
+
+  for (const itemType of Object.keys(items)) {
+    if (!allowedItemTypes.has(itemType)) {
+      throw new Error(`Unsupported item type: ${itemType}`);
+    }
+  }
+
+  const client = await pool.connect();
   let transactionStarted = false;
- let releaseError = null;
+  let releaseError = null;
   try {
     await client.query('BEGIN');
     transactionStarted = true;
@@ -1100,55 +1051,50 @@ const client = await pool.connect();
     );
 
     if (result.rows.length === 0) {
-      throw new Error(
-        'Processing job does not belong to the given user.'
-      );
+      throw new Error('Processing job does not belong to the given user.');
     }
 
     const { candidate_id: candidateId } = result.rows[0];
 
-   const processing = mappedData.processing ?? {};
+    const processing = mappedData.processing ?? {};
 
-if (
-  typeof processing !== 'object' ||
-  Array.isArray(processing)
-) {
-  throw new TypeError('mappedData.processing must be an object.');
-}
+    if (typeof processing !== 'object' || Array.isArray(processing)) {
+      throw new TypeError('mappedData.processing must be an object.');
+    }
 
-if (
-  processing.document_language !== undefined &&
-  processing.document_language !== null &&
-  typeof processing.document_language !== 'string'
-) {
-  throw new TypeError('document_language must be a string or null.');
-}
+    if (
+      processing.document_language !== undefined &&
+      processing.document_language !== null &&
+      typeof processing.document_language !== 'string'
+    ) {
+      throw new TypeError('document_language must be a string or null.');
+    }
 
-if (
-  processing.extraction_warnings !== undefined &&
-  processing.extraction_warnings !== null &&
-  (
-    !Array.isArray(processing.extraction_warnings) ||
-    !processing.extraction_warnings.every(
-      (warning) => typeof warning === 'string'
-    )
-  )
-) {
-  throw new TypeError('extraction_warnings must be an array of strings or null.');
-}
-await client.query(
-  `UPDATE processing_jobs
+    if (
+      processing.extraction_warnings !== undefined &&
+      processing.extraction_warnings !== null &&
+      (!Array.isArray(processing.extraction_warnings) ||
+        !processing.extraction_warnings.every(
+          (warning) => typeof warning === 'string'
+        ))
+    ) {
+      throw new TypeError(
+        'extraction_warnings must be an array of strings or null.'
+      );
+    }
+    await client.query(
+      `UPDATE processing_jobs
    SET document_language = $1,
        extraction_warnings = $2
    WHERE id = $3`,
-  [
-    processing.document_language ?? null,
-    processing.extraction_warnings == null
-  ? null
-  : JSON.stringify(processing.extraction_warnings),
-    jobId
-  ]
-);
+      [
+        processing.document_language ?? null,
+        processing.extraction_warnings == null
+          ? null
+          : JSON.stringify(processing.extraction_warnings),
+        jobId
+      ]
+    );
 
     // Update only empty candidate profile fields.
     const allowedProfileFields = new Set([
@@ -1171,21 +1117,24 @@ await client.query(
           throw new Error(`Unsupported profile field: ${fieldName}`);
         }
 
-        if (!wrapper || typeof wrapper !== 'object' ||
-            !Object.prototype.hasOwnProperty.call(wrapper, 'value')) {
+        if (
+          !wrapper ||
+          typeof wrapper !== 'object' ||
+          !Object.prototype.hasOwnProperty.call(wrapper, 'value')
+        ) {
           throw new TypeError(`Invalid profile wrapper: ${fieldName}`);
         }
         const value = wrapper.value;
 
-if (value !== null && typeof value !== 'string') {
-  throw new TypeError(`Invalid profile value: ${fieldName}`);
-}
+        if (value !== null && typeof value !== 'string') {
+          throw new TypeError(`Invalid profile value: ${fieldName}`);
+        }
 
         return (
-  wrapper.value !== null &&
-  wrapper.value !== undefined &&
-  wrapper.value.trim() !== ''
-);
+          wrapper.value !== null &&
+          wrapper.value !== undefined &&
+          wrapper.value.trim() !== ''
+        );
       }
     );
     let profileResult;
@@ -1197,185 +1146,165 @@ if (value !== null && typeof value !== 'string') {
           `${fieldName} = COALESCE(${fieldName}, $${index + 1})`
       );
 
-     profileResult = await client.query(
-  `UPDATE candidate_profiles
+      profileResult = await client.query(
+        `UPDATE candidate_profiles
    SET ${assignments.join(', ')},
        updated_at = CURRENT_TIMESTAMP
    WHERE id = $${values.length + 1}
    RETURNING *`,
-  [...values, candidateId]
-);
+        [...values, candidateId]
+      );
     }
-
 
     let storedProfileRow;
 
-if (profileFields.length > 0) {
-  // بعد استعلام UPDATE أعلاه
-  storedProfileRow = profileResult.rows[0];
-} else {
-  const profileResult = await client.query(
-    `SELECT *
+    if (profileFields.length > 0) {
+      // بعد استعلام UPDATE أعلاه
+      storedProfileRow = profileResult.rows[0];
+    } else {
+      const profileResult = await client.query(
+        `SELECT *
      FROM candidate_profiles
      WHERE id = $1`,
-    [candidateId]
-  );
+        [candidateId]
+      );
 
-  storedProfileRow = profileResult.rows[0];
-}
+      storedProfileRow = profileResult.rows[0];
+    }
 
-if (!storedProfileRow) {
-  throw new Error('Candidate profile was not found.');
-}
+    if (!storedProfileRow) {
+      throw new Error('Candidate profile was not found.');
+    }
 
-const savedProfileProvenance = await saveProvenance(client, {
-  candidateId,
-  itemType: 'candidate_profile',
-  itemId: candidateId,
-  jobId,
-  fields: profile,
-  storedRow: storedProfileRow
-});
+    const savedProfileProvenance = await saveProvenance(client, {
+      candidateId,
+      itemType: 'candidate_profile',
+      itemId: candidateId,
+      jobId,
+      fields: profile,
+      storedRow: storedProfileRow
+    });
 
+    const educationItems = mergeItemsByDeduplicationKey(
+      'education',
+      mappedData.items?.education ?? []
+    );
 
-const educationItems = mergeItemsByDeduplicationKey(
-  'education',
-  mappedData.items?.education ?? []
-);
+    const workExperienceItems = mergeItemsByDeduplicationKey(
+      'work_experience',
+      mappedData.items?.work_experience ?? []
+    );
 
-const workExperienceItems = mergeItemsByDeduplicationKey(
-  'work_experience',
-  mappedData.items?.work_experience ?? []
-);
+    const certificationItems = mergeItemsByDeduplicationKey(
+      'certifications',
+      mappedData.items?.certifications ?? []
+    );
 
-const certificationItems = mergeItemsByDeduplicationKey(
-  'certifications',
-  mappedData.items?.certifications ?? []
-);
+    const projectItems = mergeItemsByDeduplicationKey(
+      'projects',
+      mappedData.items?.projects ?? []
+    );
 
-const projectItems = mergeItemsByDeduplicationKey(
-  'projects',
-  mappedData.items?.projects ?? []
-);
+    const awardItems = mergeItemsByDeduplicationKey(
+      'awards',
+      mappedData.items?.awards ?? []
+    );
 
-const awardItems = mergeItemsByDeduplicationKey(
-  'awards',
-  mappedData.items?.awards ?? []
-);
+    const publicationItems = mergeItemsByDeduplicationKey(
+      'publications',
+      mappedData.items?.publications ?? []
+    );
 
-const publicationItems = mergeItemsByDeduplicationKey(
-  'publications',
-  mappedData.items?.publications ?? []
-);
+    const volunteeringItems = mergeItemsByDeduplicationKey(
+      'volunteering',
+      mappedData.items?.volunteering ?? []
+    );
 
-const volunteeringItems = mergeItemsByDeduplicationKey(
-  'volunteering',
-  mappedData.items?.volunteering ?? []
-);
+    const languageItems = mergeItemsByDeduplicationKey(
+      'languages',
+      mappedData.items?.languages ?? []
+    );
 
-const languageItems = mergeItemsByDeduplicationKey(
-  'languages',
-  mappedData.items?.languages ?? []
-);
+    const linkItems = mergeItemsByDeduplicationKey(
+      'links',
+      mappedData.items?.links ?? []
+    );
 
-const linkItems = mergeItemsByDeduplicationKey(
-  'links',
-  mappedData.items?.links ?? []
-);
+    const savedEducationItems = await saveEducation(
+      client,
+      candidateId,
+      educationItems
+    );
 
+    const savedWorkExperienceItems = await saveWorkExperience(
+      client,
+      candidateId,
+      workExperienceItems
+    );
+    const savedCertificationItems = await saveCertifications(
+      client,
+      candidateId,
+      certificationItems
+    );
+    const savedProjectItems = await saveProjects(
+      client,
+      candidateId,
+      projectItems
+    );
+    const savedAwardItems = await saveAwards(client, candidateId, awardItems);
+    const savedPublicationItems = await savePublications(
+      client,
+      candidateId,
+      publicationItems
+    );
+    const savedVolunteeringItems = await saveVolunteering(
+      client,
+      candidateId,
+      volunteeringItems
+    );
+    const savedLanguageItems = await saveLanguages(
+      client,
+      candidateId,
+      languageItems
+    );
+    const savedLinks = await saveLinks(client, candidateId, linkItems);
+    const savedProvenance = [...savedProfileProvenance];
 
+    const allSavedItems = [
+      ...savedEducationItems,
+      ...savedWorkExperienceItems,
+      ...savedCertificationItems,
+      ...savedProjectItems,
+      ...savedAwardItems,
+      ...savedPublicationItems,
+      ...savedVolunteeringItems,
+      ...savedLanguageItems,
+      ...savedLinks
+    ];
+    const reviewCandidates = allSavedItems.flatMap((item) => {
+      const reviewFields = item.reviewFields ?? {};
 
-const savedEducationItems = await saveEducation(
-  client,
-  candidateId,
-  educationItems
-);
+      return Object.entries(reviewFields).map(([fieldName, conflict]) => ({
+        itemType: item.itemType,
+        itemId: item.itemId,
+        deduplicationKey: item.deduplicationKey,
+        fieldName,
+        values: conflict.values
+      }));
+    });
 
-const savedWorkExperienceItems = await saveWorkExperience(
-  client,
-  candidateId,
-  workExperienceItems
-);
-const savedCertificationItems = await saveCertifications(
-  client,
-  candidateId,
-  certificationItems
-);
-const savedProjectItems = await saveProjects(
-  client,
-  candidateId,
-  projectItems
-);
-const savedAwardItems = await saveAwards(
-  client,
-  candidateId,
-  awardItems
-);
-const savedPublicationItems = await savePublications(
-  client,
-  candidateId,
-  publicationItems
-);
-const savedVolunteeringItems = await saveVolunteering(
-  client,
-  candidateId,
-  volunteeringItems
-);
-const savedLanguageItems = await saveLanguages(
-  client,
-  candidateId,
-  languageItems
-);
-const savedLinks = await saveLinks(
-  client,
-  candidateId,
-  linkItems
-);
-const savedProvenance = [...savedProfileProvenance];
+    for (const item of allSavedItems) {
+      const itemProvenance = await saveProvenance(client, {
+        candidateId,
+        itemType: item.itemType,
+        itemId: item.itemId,
+        jobId,
+        fields: item.fields,
+        storedRow: item.storedRow
+      });
 
-const allSavedItems = [
-  ...savedEducationItems,
-  ...savedWorkExperienceItems,
-  ...savedCertificationItems,
-  ...savedProjectItems,
-  ...savedAwardItems,
-  ...savedPublicationItems,
-  ...savedVolunteeringItems,
-  ...savedLanguageItems,
-  ...savedLinks
-];
-const reviewCandidates = allSavedItems.flatMap((item) => {
-  const reviewFields = item.reviewFields ?? {};
-
-  return Object.entries(reviewFields).map(
-    ([fieldName, conflict]) => ({
-      itemType: item.itemType,
-      itemId: item.itemId,
-      deduplicationKey: item.deduplicationKey,
-      fieldName,
-      values: conflict.values
-    })
-  );
-});
-
-for (const item of allSavedItems) {
-  const itemProvenance = await saveProvenance(client, {
-    candidateId,
-    itemType: item.itemType,
-    itemId: item.itemId,
-    jobId,
-    fields: item.fields,
-    storedRow: item.storedRow
-  });
-
-  savedProvenance.push(...itemProvenance);
-}
-
-
-
-
-
-
+      savedProvenance.push(...itemProvenance);
+    }
 
     await client.query('COMMIT');
     transactionStarted = false;
@@ -1393,22 +1322,22 @@ for (const item of allSavedItems) {
       languages: savedLanguageItems,
       links: savedLinks,
       provenance: savedProvenance,
-      reviewCandidates,
+      reviewCandidates
     };
- } catch (error) {
-  if (transactionStarted) {
-    try {
-      await client.query('ROLLBACK');
-    } catch (rollbackError) {
-      error.rollbackError = rollbackError;
-      releaseError = rollbackError;
+  } catch (error) {
+    if (transactionStarted) {
+      try {
+        await client.query('ROLLBACK');
+      } catch (rollbackError) {
+        error.rollbackError = rollbackError;
+        releaseError = rollbackError;
+      }
     }
-  }
 
-  throw error;
-} finally {
-  client.release(releaseError);
-}
+    throw error;
+  } finally {
+    client.release(releaseError);
+  }
 }
 
 module.exports = {
