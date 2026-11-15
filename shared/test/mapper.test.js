@@ -104,6 +104,47 @@ describe('mapExtractionToStorage', () => {
     expect(result.profile.summary).toEqual(empty());
   });
 
+  test('excludes candidate fields that failed validation', () => {
+    const input = buildValidExtraction();
+
+    const failedChecks = [
+      {
+        section: 'candidate',
+        index: null,
+        field: 'phone',
+        reason: 'phone_without_country_code'
+      }
+    ];
+
+    const result = mapExtractionToStorage(input, failedChecks);
+
+    expect(result.profile).not.toHaveProperty('phone');
+    expect(result.profile.first_name).toEqual(input.candidate.first_name);
+  });
+
+  test('excludes failed list fields but preserves other fields and source index', () => {
+    const input = buildValidExtraction();
+
+    const failedChecks = [
+      {
+        section: 'work_experience',
+        index: 0,
+        field: 'company_name',
+        reason: 'invalid_company_name'
+      }
+    ];
+
+    const result = mapExtractionToStorage(input, failedChecks);
+    const item = result.items.work_experience[0];
+
+    expect(item.sourceIndex).toBe(0);
+    expect(item.fields).not.toHaveProperty('company_name');
+    expect(item.fields.job_title).toEqual(
+      input.work_experience[0].job_title
+    );
+  });
+
+
   test('maps list items with their original source indexes', () => {
     const input = buildValidExtraction();
 

@@ -16,8 +16,16 @@ describe('US-10 store step integration', () => {
     jest.clearAllMocks();
   });
 
-  it('maps and stores the validated extraction', async () => {
+  it('maps and stores the validated extraction with failed checks', async () => {
     const extraction = { candidate: {}, work_experience: [] };
+    const failedChecks = [
+      {
+        section: 'candidate',
+        index: null,
+        field: 'phone',
+        reason: 'phone_without_country_code'
+      }
+    ];
     const mappedData = { profile: {}, items: {} };
 
     mapExtractionToStorage.mockReturnValue(mappedData);
@@ -27,6 +35,7 @@ describe('US-10 store step integration', () => {
       userId: 5,
       jobId: 10,
       extraction,
+      failedChecks,
       completedSteps: []
     };
 
@@ -34,7 +43,10 @@ describe('US-10 store step integration', () => {
       require('../src/steps/index')[6]
     ]);
 
-    expect(mapExtractionToStorage).toHaveBeenCalledWith(extraction);
+    expect(mapExtractionToStorage).toHaveBeenCalledWith(
+      extraction,
+      failedChecks
+    );
     expect(writeExtraction).toHaveBeenCalledWith({
       userId: 5,
       jobId: 10,
@@ -42,6 +54,7 @@ describe('US-10 store step integration', () => {
     });
     expect(result.completedSteps).toContain('store');
   });
+
 
   it('does not mark store as completed when storage fails', async () => {
     mapExtractionToStorage.mockReturnValue({ profile: {}, items: {} });

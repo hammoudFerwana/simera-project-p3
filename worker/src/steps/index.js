@@ -15,7 +15,10 @@ const createStoreStep = () => async (ctx) => {
     throw new Error('Cannot store without a validated extraction.');
   }
 
-  const mappedData = mapExtractionToStorage(ctx.extraction);
+  const mappedData = mapExtractionToStorage(
+    ctx.extraction,
+    ctx.failedChecks || []
+  );
 
   await writeExtraction({
     userId: ctx.userId,

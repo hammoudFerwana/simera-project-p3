@@ -1,28 +1,46 @@
+
 /**
  * Maps validated extraction data into a storage-friendly structure.
  *
  * @param {Object} validatedExtraction - Validated extraction data.
+ * @param {Array} failedChecks - Fields that failed code validation.
  * @returns {Object} Mapped data for the storage pipeline.
  */
-function mapExtractionToStorage(validatedExtraction) {
+function mapExtractionToStorage(validatedExtraction, failedChecks = []) {
   if (!validatedExtraction || typeof validatedExtraction !== 'object') {
     throw new TypeError('Validated extraction must be an object.');
   }
 
-  const { meta, candidate } = validatedExtraction;
-  const mapItems = (items, excludedFields = []) =>
-    items.map((item, index) => ({
-        sourceIndex: index,
-        fields: Object.fromEntries(
-             Object.entries(item)
-             .filter(([fieldName]) => !excludedFields.includes(fieldName))
-            .map(([fieldName, wrapper]) => [
-                fieldName,
-                { ...wrapper }
-            ])
-         )
-    }));
+  if (!Array.isArray(failedChecks)) {
+    throw new TypeError('failedChecks must be an array.');
+  }
 
+  const { meta, candidate } = validatedExtraction;
+
+  const isFailedField = (section, index, fieldName) =>
+    failedChecks.some(
+      (check) =>
+        check.section === section &&
+        check.index === index &&
+        check.field === fieldName
+    );
+
+  const mapItems = (items, section, excludedFields = []) =>
+    items.map((item, index) => ({
+      sourceIndex: index,
+      fields: Object.fromEntries(
+        Object.entries(item)
+          .filter(
+            ([fieldName]) =>
+              !excludedFields.includes(fieldName) &&
+              !isFailedField(section, index, fieldName)
+          )
+          .map(([fieldName, wrapper]) => [
+            fieldName,
+            { ...wrapper }
+          ])
+      )
+    }));
 
   return {
     processing: {
@@ -31,24 +49,39 @@ function mapExtractionToStorage(validatedExtraction) {
     },
 
     profile: Object.fromEntries(
-        Object.entries(candidate).map(([fieldName, wrapper]) => [
-            fieldName,
-            { ...wrapper }
+      Object.entries(candidate)
+        .filter(
+          ([fieldName]) => !isFailedField('candidate', null, fieldName)
+        )
+        .map(([fieldName, wrapper]) => [
+          fieldName,
+          { ...wrapper }
         ])
     ),
 
     items: {
-      work_experience: mapItems(validatedExtraction.work_experience, [
-        'duration_months'
-      ]),
-      education: mapItems(validatedExtraction.education),
-      languages: mapItems(validatedExtraction.languages),
-      links: mapItems(validatedExtraction.links),
-      certifications: mapItems(validatedExtraction.certifications),
-      projects: mapItems(validatedExtraction.projects),
-      awards: mapItems(validatedExtraction.awards),
-      publications: mapItems(validatedExtraction.publications),
-      volunteering: mapItems(validatedExtraction.volunteering)
+      work_experience: mapItems(
+        validatedExtraction.work_experience,
+        'work_experience',
+        ['duration_months']
+      ),
+      education: mapItems(validatedExtraction.education, 'education'),
+      languages: mapItems(validatedExtraction.languages, 'languages'),
+      links: mapItems(validatedExtraction.links, 'links'),
+      certifications: mapItems(
+        validatedExtraction.certifications,
+        'certifications'
+      ),
+      projects: mapItems(validatedExtraction.projects, 'projects'),
+      awards: mapItems(validatedExtraction.awards, 'awards'),
+      publications: mapItems(
+        validatedExtraction.publications,
+        'publications'
+      ),
+      volunteering: mapItems(
+        validatedExtraction.volunteering,
+        'volunteering'
+      )
     }
   };
 }
