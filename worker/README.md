@@ -39,6 +39,49 @@ Each step is `async (ctx) => ctx`. It throws `TemporaryError` or `PermanentError
 
 To replace a stub, change the entry in `worker/src/steps/index.js`. The orchestrator does not change.
 
+### Step 4: Normalize skills (US-13)
+
+Normalizes raw extracted skill names to canonical names from the universal skills list:
+
+- Exact matches (case-insensitive, trimmed) resolve immediately via code without calling the LLM.
+- Fuzzy matching using Fuse.js searches canonical names with configurable minimum similarity (`SKILL_MIN_SIMILARITY`, default 0.5), returning up to 50 candidates.
+- Skills with candidates are batched into a single LLM request per file for canonical selection.
+- Code validation enforces that the LLM-selected name is one of the candidates provided. Otherwise, the skill is marked as unknown.
+- Skills without candidates above the threshold are marked unknown without calling the LLM.
+- Empty skill names are skipped.
+- Resolves skills into `ctx.skillResolutions`, logging only `{ jobId, matched, unknown, llmRequests }` without sensitive text.
+
+### Step 5: Validate with code (US-09, US-14)
+
+`validateWithCode` runs deterministic code checks against `ctx.extraction`:
+
+- Evidence verification: checks that every non-null wrapper's evidence appears in `ctx.text` or `ctx.links` (normalized with Unicode NFKC, lowercase, single-space whitespace). Missing evidence adds `evidence_not_found`.
+- Format normalization:
+  - `candidate.phone`: normalized to E.164 via `libphonenumber-js`. Numbers without country code fail with `phone_without_country_code`; invalid numbers fail with `invalid_phone`.
+  - `candidate.country_code`: normalized to ISO 3166-1 alpha-2 via `i18n-iso-countries`. Invalid codes fail with `invalid_country`.
+  - `languages[].language`: normalized to its English name via `Intl.DisplayNames`. Invalid languages fail with `invalid_language`.
+  - URLs (`links[].url`, `work_experience[].company_url`, `certifications[].credential_url`, `projects[].project_url`, `publications[].url`): verified with http/https and domain dot checks, prepending `https://` for bare domains. Invalid URLs fail with `invalid_url`.
+- Date validation (US-14):
+  - Real date checks (`isRealDate`): verifies calendar existence (month 1-12, valid days in month with leap years) and year range (`minYear = 1950`, `maxYear = year of now + 10`). Failures record `invalid_date` or `year_out_of_range`.
+  - Future date check: applies to start dates and single dates (`work_experience.start_date`, `education.start_date`, `volunteering.start_date`, `projects.start_date`, `certifications.issue_date`, `awards.award_date`, `publications.publication_date`) at month precision. Dates later than the month of `now` fail with `future_date`. End dates and certificate expiration dates may be in the future.
+  - Chronological ordering: start dates cannot be later than end dates (or issue date after expiration date for certifications), failing with `start_after_end` on the end date / expiration date field.
+  - Consistency: `is_current = true` with a non-null `end_date` in `work_experience`, `education`, or `volunteering` fails with `current_with_end_date` on `end_date`.
+- Experience duration recalculation (US-14):
+  - Recalculates `duration_months` for every `work_experience` item using `jobMonths` based on inclusive months at month precision. Year-only start dates count from January; year-only end dates count to December (Open Decision 20). Ongoing jobs count through the current month of `now`.
+  - If the code calculation differs from the LLM value, the code's value replaces it in `ctx.extraction` (Open Decision 21). When the duration changes and `duration_months.evidence` is null, evidence and confidence are copied from `start_date`.
+  - Items with failed date checks on `start_date` or `end_date` keep their existing duration without recalculation.
+  - Changed durations are not failed checks and are not logged. No total experience is ever calculated or stored in `ctx` or the database (Open Decision 27).
+- Safe failure handling: failed checks never change or drop values. Each failure records `{ section, index, field, reason }` in `ctx.failedChecks` and is logged with `jobId`, `section`, `index`, `field`, and `reason` only (never the value or evidence).
+
+### Check email step (US-07)
+
+Checks that emails found in the file match the candidate's account login email (`users.email` via `candidate_profiles.user_id`).
+
+- Pure function `findEmails(text, links)` extracts lowercase, de-duplicated emails from document text and `mailto:` links.
+- Pure function `decideEmail(fileEmails, loginEmail)` permits continuation if the file contains the account email or contains no emails at all; otherwise reports mismatch.
+- On mismatch, throws `PermanentError('The file contains an email that does not match your account email')`.
+- On continuation, sets `ctx.loginEmail` to the lowercase account email.
+
 ## Add a job from the API (US-04, US-22)
 
 1. Insert the `processing_jobs` row with status `queued`.
@@ -52,7 +95,20 @@ To replace a stub, change the entry in `worker/src/steps/index.js`. The orchestr
 - `src/orchestrator.js`: runs the steps in order.
 - `scripts/smoke-queue.js`: manual check of the ordering with real pg-boss.
 - `scripts/smoke-restart.js`: manual check that a job finishes after the worker is killed.
+- `scripts/smoke-llm.js`: manual check of LLM extraction on a CV file using live AI Studio credentials.
 - `../shared/src/queue.js`: pg-boss setup, `enqueueJob`, `enqueueUnfinishedJobs`, `startWorker` (shared with the API).
+
+## LLM Extraction Step (US-08)
+
+Step 3 (`worker/src/steps/call-llm.js`) performs structured extraction using an LLM.
+
+- Formulates extraction prompt (`worker/src/llm/extraction-prompt.js`, version `extraction-v1`) with JSON Schema, extracted links, processing date, and sanitized CV text (preventing closing tag injection).
+- Calls the LLM client with `response_format: { type: 'json_object' }`.
+- Strips markdown code fences if returned.
+- Validates the parsed object against the EN-03 Zod contract (`shared/src/extraction/schema.js`).
+- On validation or JSON parse failure, tracks errors in an in-memory Map keyed by `jobId` and throws `TemporaryError`. The next retry attempt feeds the error list back to the LLM to request corrected output.
+- On success, sets `ctx.extraction`, deletes the retry feedback entry, and records metadata (`extracted_at`, `model_name`, `model_version`, `prompt_version`, `document_language`, `extraction_warnings`) in `processing_jobs`.
+- Never logs CV text, prompt messages, or LLM output. Logs only job IDs, attempt outcomes, and error classes.
 
 ## Tests
 

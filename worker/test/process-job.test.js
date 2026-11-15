@@ -113,6 +113,26 @@ describe('processJob', () => {
     expect(job.completed_at).not.toBeNull();
     expect(job.started_at).not.toBeNull();
   });
+  it('passes the candidate userId to the processing context', async () => {
+  const candidateId = await seedCandidate();
+  const candidate = await pool.query(
+    'SELECT user_id FROM candidate_profiles WHERE id = $1',
+    [candidateId]
+  );
+  const expectedUserId = candidate.rows[0].user_id;
+  const id = await seedJobFor(candidateId);
+
+  let receivedUserId;
+
+  const step = async (ctx) => {
+    receivedUserId = ctx.userId;
+    return ctx;
+  };
+
+  await processJob(pool, id, { steps: [step], sleep: noSleep });
+
+  expect(receivedUserId).toBe(expectedUserId);
+});
 
   it('ends as completed_with_review when review items exist', async () => {
     const id = await seedJob();

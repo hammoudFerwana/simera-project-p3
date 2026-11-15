@@ -8,6 +8,7 @@ async function startAttempt(db, jobId, maxAttempts) {
             attempt_count = j.attempt_count + 1,
             next_retry_at = NULL
        FROM uploaded_files f
+       JOIN candidate_profiles cp ON cp.id = f.candidate_id
       WHERE j.id = $1
         AND f.id = j.file_id
         AND j.status IN ('queued', 'processing')
@@ -20,7 +21,7 @@ async function startAttempt(db, jobId, maxAttempts) {
              AND j2.id < j.id
              AND j2.status IN ('queued', 'processing')
         )
-      RETURNING j.*, f.candidate_id`,
+      RETURNING j.*, f.candidate_id, cp.user_id`,
     [jobId, maxAttempts]
   );
   return rows[0] || null;
@@ -91,6 +92,39 @@ async function markCompleted(
   );
 }
 
+async function saveExtractionMetadata(
+  db,
+  jobId,
+  {
+    extractedAt,
+    modelName,
+    modelVersion,
+    promptVersion,
+    documentLanguage,
+    extractionWarnings
+  }
+) {
+  await db.query(
+    `UPDATE processing_jobs
+        SET extracted_at = $2,
+            model_name = $3,
+            model_version = $4,
+            prompt_version = $5,
+            document_language = $6,
+            extraction_warnings = $7
+      WHERE id = $1`,
+    [
+      jobId,
+      extractedAt,
+      modelName,
+      modelVersion,
+      promptVersion,
+      documentLanguage ? String(documentLanguage).slice(0, 20) : null,
+      extractionWarnings ? JSON.stringify(extractionWarnings) : null
+    ]
+  );
+}
+
 module.exports = {
   startAttempt,
   failIfExhausted,
@@ -98,5 +132,6 @@ module.exports = {
   markFailed,
   markCompleted,
   getJob,
-  getCandidateId
+  getCandidateId,
+  saveExtractionMetadata
 };
