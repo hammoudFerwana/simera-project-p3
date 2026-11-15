@@ -1,4 +1,3 @@
-
 jest.mock('shared/src/mapper', () => ({
   mapExtractionToStorage: jest.fn()
 }));
@@ -39,13 +38,12 @@ describe('US-10 store step integration', () => {
       completedSteps: []
     };
 
-    const result = await runSteps(ctx, [
-      require('../src/steps/index')[6]
-    ]);
+    const result = await runSteps(ctx, [require('../src/steps/index')[6]]);
 
     expect(mapExtractionToStorage).toHaveBeenCalledWith(
       extraction,
-      failedChecks
+      failedChecks,
+      []
     );
     expect(writeExtraction).toHaveBeenCalledWith({
       userId: 5,
@@ -54,7 +52,6 @@ describe('US-10 store step integration', () => {
     });
     expect(result.completedSteps).toContain('store');
   });
-
 
   it('does not mark store as completed when storage fails', async () => {
     mapExtractionToStorage.mockReturnValue({ profile: {}, items: {} });
@@ -78,10 +75,7 @@ describe('US-10 store step integration', () => {
     const storeStep = require('../src/steps/index')[6];
 
     await expect(
-      runSteps(
-        { userId: 5, jobId: 10, completedSteps: [] },
-        [storeStep]
-      )
+      runSteps({ userId: 5, jobId: 10, completedSteps: [] }, [storeStep])
     ).rejects.toThrow('Cannot store without a validated extraction.');
 
     expect(writeExtraction).not.toHaveBeenCalled();
