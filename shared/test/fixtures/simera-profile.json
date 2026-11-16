@@ -1,0 +1,21 @@
+{
+  "email": "jane.doe@example.com",
+  "first_name": "Jane",
+  "last_name": "Doe",
+  "headline": "Senior Software Engineer",
+  "city": "Ramallah",
+  "country": "Palestine",
+  "links": {
+    "portfolio": "https://janedoe.dev/portfolio"
+  },
+  "experience": [
+    {
+      "title": "Senior Software Engineer",
+      "company": "Acme Corp",
+      "start": "2021-03",
+      "end": null,
+      "current": true
+    }
+  ],
+  "skills": ["JavaScript", "Node.js", "PostgreSQL"]
+}

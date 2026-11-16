@@ -394,7 +394,7 @@ A verified candidate uploads a CV (PDF or DOCX) and a LinkedIn file (md, exporte
 
 **A rejected file leaves nothing behind:** no raw file, no row, no job, and the reason is only in the response. If saving fails after the raw file was written, the file is deleted again.
 
-**Shared service:** steps 1–8 live in `processUpload()` in `shared/src/upload/upload.service.js`, with a `sourceType` parameter, so US-22 (Simera JSON) uses the same function with `createJob: false` (its job is created when the admin clicks the button).
+**Shared service:** steps 1–8 live in `processUpload()` in `shared/src/upload/upload.service.js`, with a `sourceType` parameter. US-22 (Simera JSON) uses the same function with `createJob: false` (its job is created when the admin clicks the button) and `resolveCandidateId` (the candidate is found from the email inside the file). See [Simera file (US-22)](#simera-file-us-22).
 
 **Settings** (optional, in `.env`):
 
@@ -895,6 +895,127 @@ Returns the complete chronological change history for a candidate profile, order
     - Otherwise inserts a single row into `human_audit_log` and returns the inserted row.
     - Invalid parameters throw `TypeError`.
 - `getAdminIdForUser(client, userId)`: Resolves an administrator ID (`admins.id`) for a given user ID (`users.id`), returning the integer ID or `null`.
+
+### Simera file (US-22)
+
+The Simera file is a JSON that simulates a candidate already registered on the Simera platform. The candidate never uploads it: the dev team uploads it for a candidate who has registered and verified their email, and the admin sends it to processing from the candidate page. After that it goes through the **same pipeline** as a CV or LinkedIn file (extract text → email check → LLM → skills → validation → store). The raw JSON text is the file text.
+
+- `uploaded_files.source_type = simera_profile`, `.json`, `application/json`.
+- **One job per file**, created only by the admin's click (not at upload). An updated JSON (different text) is a new file with its own job.
+- The Latest order counts from the click: the job is created then, and jobs of the same candidate run in creation order.
+- No source is preferred: Simera data is compared with the stored data like any other file.
+
+**The JSON** must be an object with the candidate's login email in a top-level `"email"` string. Every other field is free; the LLM extracts it like a CV. Demo files are in `api/scripts/simera-demo/`.
+
+```json
+{
+  "email": "john.doe@simera.local",
+  "first_name": "John",
+  "headline": "Backend Developer",
+  "city": "Ramallah"
+}
+```
+
+#### `POST /api/admin/simera-files`
+
+Uploads a Simera JSON. **Admin only.** Body: `multipart/form-data` with the file in a field named **`file`**.
+
+Checks, in order: `.json` and valid UTF-8 JSON → size ≤ 10 MB → text not nearly empty → text hash not a duplicate → top-level `email` belongs to a registered, verified candidate → raw file saved + `uploaded_files` row. **No job is created.** Any rejection saves nothing.
+
+| Status | `reason`                      | When                                                 | Message (`errors.file`)                                                                                            |
+| ------ | ----------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `201`  |                               | Saved                                                | `{ "message": "Simera file saved. Send it to processing from the candidate page", "fileId": 5, "candidateId": 2 }` |
+| `400`  |                               | No file in the `file` field                          | "Choose a file to upload"                                                                                          |
+| `400`  | `unsupported_format`          | Not `.json`, or not valid JSON                       | "This file type is not accepted. Accepted formats for the Simera file: JSON"                                       |
+| `400`  | `no_readable_text`            | Nearly empty JSON (under `MIN_EXTRACTED_TEXT_CHARS`) | "The file has no readable text. Scanned or image-only files are not supported"                                     |
+| `400`  | `simera_email_missing`        | Not an object, or no non-empty string `email`        | "The Simera file must be a JSON object with a top-level \"email\" field"                                           |
+| `401`  |                               | Not logged in                                        | `errors.auth`: "Log in to continue"                                                                                |
+| `403`  |                               | Not an admin                                         | `errors.auth`: "You do not have access to this resource"                                                           |
+| `409`  | `duplicate_file`              | The same text was already uploaded                   | "This file was already uploaded"                                                                                   |
+| `413`  | `file_too_large`              | Larger than 10 MB                                    | "The file is larger than 10 MB. Upload a file of 10 MB or less"                                                    |
+| `422`  | `simera_email_not_registered` | No candidate with that email                         | "No registered candidate has the email in this Simera file"                                                        |
+| `422`  | `simera_email_not_verified`   | The candidate hasn't verified the email              | "The candidate with the email in this Simera file has not verified their email yet"                                |
+
+#### `GET /api/admin/candidates/:id/simera`
+
+The "Simera file" section of the candidate page: the candidate's **newest** Simera file, its status, and whether the button is enabled. **Admin only.**
+
+```json
+{
+  "candidateId": 2,
+  "file": {
+    "id": 5,
+    "name": "john-doe-v1.json",
+    "uploadedAt": "2026-11-16T10:00:00.000Z",
+    "rawUrl": "/api/uploads/5/raw"
+  },
+  "job": {
+    "id": 9,
+    "status": "processing",
+    "createdAt": "2026-11-16T10:05:00.000Z",
+    "startedAt": "2026-11-16T10:05:01.000Z",
+    "completedAt": null,
+    "failureReason": null,
+    "pendingReviewCount": null
+  },
+  "status": "processing",
+  "canSend": false,
+  "disabledReason": "This Simera file is being processed"
+}
+```
+
+| Situation                                           | `status`     | `job`  | `canSend` | `disabledReason`                                  |
+| --------------------------------------------------- | ------------ | ------ | --------- | ------------------------------------------------- |
+| No Simera file (`file: null`)                       | `null`       | `null` | `false`   | "No Simera file exists for this candidate"        |
+| File, not sent yet                                  | `not_sent`   | `null` | `true`    | `null`                                            |
+| Job `queued` or `processing`                        | `processing` | object | `false`   | "This Simera file is being processed"             |
+| Job `completed` or `completed_with_review`          | `completed`  | object | `false`   | "This Simera file was already sent to processing" |
+| Job `failed` (see `job.failureReason`; never rerun) | `failed`     | object | `false`   | "This Simera file was already sent to processing" |
+
+`job.status` is the internal status. Errors: `400` bad id, `401`, `403`, `404` `errors.candidateId`: "Candidate not found".
+
+#### `POST /api/admin/candidates/:id/simera/send`
+
+"Send Simera file to processing". **Admin only.** No body. Creates the one job of the candidate's newest Simera file and sends it to the queue. A second click, or two admins at once, never creates a second job (`processing_jobs.file_id` is unique). If sending to the queue fails, the click is still accepted: the job stays `queued` and the worker sends it at startup.
+
+| Status | `reason`              | When                         | Body                                                                       |
+| ------ | --------------------- | ---------------------------- | -------------------------------------------------------------------------- |
+| `202`  |                       | Job created                  | `{ "message": "Simera file sent to processing", "fileId": 5, "jobId": 9 }` |
+| `400`  |                       | Bad candidate id             | `errors.candidateId`: "Candidate id must be a positive integer"            |
+| `401`  |                       | Not logged in                | `errors.auth`: "Log in to continue"                                        |
+| `403`  |                       | Not an admin                 | `errors.auth`: "You do not have access to this resource"                   |
+| `404`  |                       | No such candidate            | `errors.candidateId`: "Candidate not found"                                |
+| `409`  | `no_simera_file`      | No Simera file               | `errors.simera`: "No Simera file exists for this candidate"                |
+| `409`  | `simera_processing`   | Its job is still running     | `errors.simera`: "This Simera file is being processed"                     |
+| `409`  | `simera_already_sent` | Already sent (any end state) | `errors.simera`: "This Simera file was already sent to processing"         |
+
+#### Try it
+
+With the API (and the worker, to process the job) running, and the sample candidate seeded (`npm run seed:candidates --workspace=shared`, email `john.doe@simera.local`):
+
+```bash
+# Upload demo files as the dev team (logs in with ADMIN_EMAIL / ADMIN_PASSWORD from .env;
+# set API_URL if the API is not on http://localhost:<API_PORT>)
+npm run simera:upload --workspace=api -- api/scripts/simera-demo/john-doe-v1.json
+
+# Or with curl, logged in as the admin (admin-cookies.txt, see US-03)
+curl -i -b admin-cookies.txt -F "file=@api/scripts/simera-demo/john-doe-v1.json" \
+  http://localhost:3000/api/admin/simera-files
+
+# Section state, then the button (replace 2 with the candidateId from the upload)
+curl -b admin-cookies.txt http://localhost:3000/api/admin/candidates/2/simera
+curl -i -b admin-cookies.txt -X POST http://localhost:3000/api/admin/candidates/2/simera/send
+```
+
+`john-doe-v2.json` is an updated version (different headline and city): uploading it after v1 is a new file, and the button is enabled again.
+
+> **Known dependency:** comparing with the stored data and applying the Latest rules (for example a different Simera city handled by rule B2) needs the compare step to be wired into the worker (US-17). Until then that step is a stub, as for every other source.
+
+Run the tests (no database or queue needed):
+
+```bash
+npm test -- api/test/admin-simera.test.js --verbose
+```
 
 ## Testing and Code Quality
 

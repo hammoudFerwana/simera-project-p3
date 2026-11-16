@@ -43,13 +43,12 @@ To replace a stub, change the entry in `worker/src/steps/index.js`. The orchestr
 
 `extractText` runs `extract(fileBuffer, mimeType)` from `shared/src/extraction/extract.js` on the raw uploaded file:
 
-- Fetches `storage_location`, `mime_type`, and `source_type` from `uploaded_files` for `ctx.fileId`.
+- Fetches `storage_location` and `mime_type` from `uploaded_files` for `ctx.fileId`.
 - Resolves the private storage path via `createLocalStorage` and reads the file bytes.
-- Extracts plain text and links (`[{ label, url }]`) for PDF, DOCX, or Markdown files.
+- Extracts plain text and links (`[{ label, url }]`) for PDF, DOCX, Markdown, or JSON (Simera, US-22) files. For JSON the raw text is the file text, and bare `http(s)`/`mailto` addresses are the links.
 - Sets `ctx.text` and `ctx.links` for the following steps (US-07 checks email, US-08 sends to the LLM, US-09 checks evidence).
 - Safe failure handling:
   - Missing file record: `PermanentError('Uploaded file not found')`
-  - Simera profile files: `PermanentError('Simera files are not supported yet')`
   - Unsupported MIME type: `PermanentError('Unsupported file type')`
   - Missing file on disk (ENOENT): `PermanentError('The uploaded file is missing')`
   - Other file system error: `TemporaryError('The uploaded file could not be opened')`

@@ -3,11 +3,12 @@ const path = require('path');
 const MIME_TYPES = {
   pdf: 'application/pdf',
   docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  markdown: 'text/markdown'
+  markdown: 'text/markdown',
+  json: 'application/json'
 };
 
-// Accepted formats per source type (requirements 3.3). US-22 adds
-// simera_profile (JSON) here.
+// Accepted formats per source type (requirements 3.3). simera_profile is
+// uploaded by the dev team only (US-22), never by the candidate.
 const SOURCE_FORMATS = {
   cv: {
     label: 'the CV',
@@ -19,6 +20,10 @@ const SOURCE_FORMATS = {
   linkedin: {
     label: 'LinkedIn',
     formats: [{ extension: '.md', name: 'MD', mimeType: MIME_TYPES.markdown }]
+  },
+  simera_profile: {
+    label: 'the Simera file',
+    formats: [{ extension: '.json', name: 'JSON', mimeType: MIME_TYPES.json }]
   }
 };
 
@@ -68,9 +73,25 @@ function decodeUtf8Text(buffer) {
 }
 
 /**
- * Checks the real content against the expected type (magic bytes, or valid
- * UTF-8 text for markdown). Never trusts the extension or the client's
- * Content-Type.
+ * Parses strict UTF-8 JSON text, or returns undefined when the bytes are not
+ * valid JSON. Never evaluates anything: JSON.parse only.
+ */
+function parseJsonText(buffer) {
+  const text = decodeUtf8Text(buffer);
+  if (text === null) {
+    return undefined;
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Checks the real content against the expected type (magic bytes, valid
+ * UTF-8 text for markdown, or UTF-8 text that parses as JSON). Never trusts
+ * the extension or the client's Content-Type.
  */
 function contentMatchesMimeType(mimeType, buffer) {
   switch (mimeType) {
@@ -83,6 +104,8 @@ function contentMatchesMimeType(mimeType, buffer) {
       );
     case MIME_TYPES.markdown:
       return decodeUtf8Text(buffer) !== null;
+    case MIME_TYPES.json:
+      return parseJsonText(buffer) !== undefined;
     default:
       return false;
   }
@@ -95,5 +118,6 @@ module.exports = {
   contentMatchesMimeType,
   decodeUtf8Text,
   findFormatByFilename,
-  isSupportedSourceType
+  isSupportedSourceType,
+  parseJsonText
 };

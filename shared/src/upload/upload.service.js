@@ -178,6 +178,8 @@ async function removeRawFile(storage, storageLocation, logger) {
  *   3. size is 10 MB or less
  *   4. the file opens and its text is not empty or nearly empty
  *   5. the text hash is not in uploaded_files (duplicate)
+ *   5b. when resolveCandidateId is given (Simera, US-22): the candidate is
+ *       found from the text; it throws an UploadError when it can't be
  *   6. the raw copy is saved unchanged
  *   7. uploaded_files (+ processing_jobs when createJob) in one transaction
  *   8. the job is sent to the queue, once
@@ -195,20 +197,26 @@ async function removeRawFile(storage, storageLocation, logger) {
  * @param {{ minExtractedTextChars: number }} deps.config upload settings
  * @param {{ error: Function }} [deps.logger]
  * @param {object} input
- * @param {number} input.candidateId candidate_profiles.id
- * @param {'cv' | 'linkedin'} input.sourceType
+ * @param {number} [input.candidateId] candidate_profiles.id, when known
+ *   before the upload (candidate slots)
+ * @param {(text: string) => Promise<number>} [input.resolveCandidateId] used
+ *   instead of candidateId when the candidate is named inside the file
+ *   (Simera: the email in the JSON). Runs after the duplicate check and
+ *   before anything is saved; it throws an UploadError to reject the file.
+ * @param {'cv' | 'linkedin' | 'simera_profile'} input.sourceType
  * @param {string} input.originalFilename
  * @param {Buffer} input.buffer the raw bytes
  * @param {Date} [input.uploadedAt] when the upload was received
  * @param {boolean} [input.createJob] false for Simera, whose job is created
  *   when the admin clicks the button (US-22)
- * @returns {Promise<{ fileId: number, jobId: number | null }>}
+ * @returns {Promise<{ fileId: number, jobId: number | null, candidateId: number }>}
  * @throws {UploadError} for a rejected file
  */
 async function processUpload(
   { db, storage, enqueueJob, config, logger = console },
   {
-    candidateId,
+    candidateId: knownCandidateId,
+    resolveCandidateId,
     sourceType,
     originalFilename,
     buffer,
@@ -250,6 +258,10 @@ async function processUpload(
   if (existing.rows.length > 0) {
     throw uploadErrors.duplicate();
   }
+
+  const candidateId = resolveCandidateId
+    ? await resolveCandidateId(text)
+    : knownCandidateId;
   const validatedAt = new Date();
 
   const storageLocation = await storage.save(buffer, format.extension);
@@ -288,7 +300,7 @@ async function processUpload(
     }
   }
 
-  return ids;
+  return { ...ids, candidateId };
 }
 
 module.exports = {

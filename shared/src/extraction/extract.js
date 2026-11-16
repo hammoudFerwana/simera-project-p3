@@ -1,6 +1,10 @@
 const mammoth = require('mammoth');
 const { getDocumentProxy, getResolvedPDFJS } = require('unpdf');
-const { MIME_TYPES, decodeUtf8Text } = require('../upload/file-types');
+const {
+  MIME_TYPES,
+  decodeUtf8Text,
+  parseJsonText
+} = require('../upload/file-types');
 const { TextExtractionError, normalizeText } = require('./text-extractor');
 
 // A text shorter than this (after collapsing whitespace) counts as empty.
@@ -312,27 +316,49 @@ function extractFromMarkdown(buffer) {
     ' '.repeat(whole.length)
   );
 
-  // <https://...> and bare https://... addresses
+  addBareLinks(links, seen, rest);
+  return { text, links };
+}
+
+/** Adds <https://...> and bare https://... or mailto: addresses. */
+function addBareLinks(links, seen, text) {
   const bare = /<?(https?:\/\/[^\s<>)\]]+|mailto:[^\s<>)\]]+)>?/g;
-  let match = bare.exec(rest);
+  let match = bare.exec(text);
   while (match) {
     addLink(links, seen, '', match[1].replace(/[.,;:!?]+$/, ''));
-    match = bare.exec(rest);
+    match = bare.exec(text);
   }
+}
+
+// ---------- JSON (Simera file, US-22) ----------
+
+function extractFromJson(buffer) {
+  // The raw JSON text is the file text, kept as written. It is only parsed
+  // to check it, never evaluated.
+  if (parseJsonText(buffer) === undefined) {
+    throw new Error('JSON file is not valid UTF-8 JSON');
+  }
+  const text = decodeUtf8Text(buffer);
+
+  const links = [];
+  const seen = new Set();
+  // A JSON string ends with a quote, so it is not part of an address.
+  addBareLinks(links, seen, text.replace(/"/g, ' '));
   return { text, links };
 }
 
 // ---------- the one function ----------
 
 /**
- * Extracts the text and the links of a CV or LinkedIn file, with code only.
+ * Extracts the text and the links of a CV, LinkedIn or Simera (JSON) file,
+ * with code only.
  * Used by the upload check (US-04) and by the worker (step 1 of US-05).
  *
  * The same file always gives the same text, so the text can be hashed.
  * Nothing is rendered or executed: not HTML, not macros, not PDF scripts.
  *
  * @param {Buffer} fileBuffer
- * @param {string} mimeType one of MIME_TYPES (pdf, docx, markdown)
+ * @param {string} mimeType one of MIME_TYPES (pdf, docx, markdown, json)
  * @param {{ minTextChars?: number }} [options] text shorter than this (after
  *   collapsing whitespace) is reported as empty
  * @returns {Promise<{ text: string, links: { label: string, url: string }[], isEmpty: boolean }>}
@@ -362,6 +388,9 @@ async function extract(
         break;
       case MIME_TYPES.markdown:
         result = extractFromMarkdown(fileBuffer);
+        break;
+      case MIME_TYPES.json:
+        result = extractFromJson(fileBuffer);
         break;
       default:
         throw new Error(`Unsupported MIME type: ${mimeType}`);

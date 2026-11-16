@@ -183,4 +183,9 @@ function createUploadsRouter({
   return router;
 }
 
-module.exports = { createUploadsRouter };
+module.exports = {
+  createUploadsRouter,
+  receiveFile,
+  sendFileFieldError,
+  sendUploadError
+};

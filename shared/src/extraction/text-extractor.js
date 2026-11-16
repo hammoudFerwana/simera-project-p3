@@ -4,7 +4,11 @@ const {
   getDocumentProxy,
   getResolvedPDFJS
 } = require('unpdf');
-const { MIME_TYPES, decodeUtf8Text } = require('../upload/file-types');
+const {
+  MIME_TYPES,
+  decodeUtf8Text,
+  parseJsonText
+} = require('../upload/file-types');
 
 /** The file can't be opened or read (corrupted, encrypted, wrong content). */
 class TextExtractionError extends Error {
@@ -44,6 +48,15 @@ function extractFromMarkdown(buffer) {
   return text;
 }
 
+function extractFromJson(buffer) {
+  // The raw JSON text is the file text (Simera file, US-22). It must parse,
+  // but it is kept exactly as written so evidence can be found in it.
+  if (parseJsonText(buffer) === undefined) {
+    throw new Error('JSON file is not valid UTF-8 JSON');
+  }
+  return decodeUtf8Text(buffer);
+}
+
 /**
  * Extracts the plain text of an uploaded file. Used by the upload service
  * (integrity check and text hash) and again by the worker, since the text is
@@ -68,6 +81,8 @@ async function extractText({ mimeType, buffer }) {
         return await extractFromDocx(buffer);
       case MIME_TYPES.markdown:
         return extractFromMarkdown(buffer);
+      case MIME_TYPES.json:
+        return extractFromJson(buffer);
       default:
         throw new Error(`Unsupported MIME type: ${mimeType}`);
     }
