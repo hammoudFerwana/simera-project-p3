@@ -305,3 +305,186 @@ const { totalMonths, perJob } = calculateExperienceMonths(jobs, {
 - `jobMonths(job, { now })`: counts inclusive months for a single job or `null` if unparseable/invalid. Ongoing items end at the month of `now`.
 - `calculateExperienceMonths(jobs, { now })`: sorts valid intervals, merges overlapping intervals, and returns `{ totalMonths, perJob }`. Never mutates the input array.
 - Total experience is never stored in the database or extraction schema; it is calculated on read.
+
+## Compare with stored data (US-15)
+
+Compares a new validated extraction against the candidate's existing stored data (`compareWithStored` in `shared/src/comparison/compare.js`, loaded via `loadStoredCandidate` in `shared/src/comparison/stored-data.js`). First-time files with no existing stored profile or section items return `null` and skip comparison.
+
+### Stored data shape
+
+The stored data object is loaded by `loadStoredCandidate(db, candidateId)` with plain values (no wrappers) and database IDs for all list section items:
+
+```js
+{
+  candidate: {
+    first_name,
+    last_name,
+    headline,
+    summary,
+    phone,
+    industry,
+    profession,
+    city,
+    country_code
+  },
+  work_experience: [
+    {
+      id,
+      job_title,
+      company_name,
+      start_date,
+      end_date,
+      is_current,
+      location,
+      employment_type,
+      work_mode,
+      description,
+      responsibilities,
+      achievements,
+      skills_used,
+      company_url
+    }
+  ],
+  education: [
+    {
+      id,
+      institution_name,
+      degree_level,
+      degree_name,
+      field_of_study,
+      start_date,
+      end_date,
+      is_current,
+      gpa,
+      honors,
+      location,
+      description
+    }
+  ],
+  certifications: [
+    {
+      id,
+      name,
+      issuing_organization,
+      issue_date,
+      expiration_date,
+      credential_id,
+      credential_url,
+      description
+    }
+  ],
+  projects: [
+    {
+      id,
+      name,
+      description,
+      role,
+      project_url,
+      start_date,
+      end_date
+    }
+  ],
+  awards: [
+    {
+      id,
+      name,
+      issuer,
+      award_date,
+      description
+    }
+  ],
+  publications: [
+    {
+      id,
+      title,
+      publisher,
+      publication_date,
+      url,
+      description
+    }
+  ],
+  volunteering: [
+    {
+      id,
+      organization,
+      role,
+      description,
+      start_date,
+      end_date,
+      is_current
+    }
+  ],
+  languages: [
+    {
+      id,
+      language,
+      proficiency_level
+    }
+  ],
+  links: [
+    {
+      id,
+      link_type,
+      url,
+      label
+    }
+  ],
+  skills: [
+    {
+      id,
+      canonical_name,
+      proficiency_level,
+      months_of_experience
+    }
+  ]
+}
+```
+
+A candidate with no stored data at all (no profile row or an empty profile row and no items across any section) returns `null`.
+
+### Skills link
+
+`withSkillNames(extraction, skillResolutions)` in `shared/src/comparison/skills.js` is a pure function that attaches `canonical_name` to extraction skills matching `status: 'matched'` from US-13 skill resolutions (or `null` for `'unknown'`, `'skipped'`, or missing resolutions) without mutating the input extraction.
+
+### Diff shape
+
+`compareWithStored(stored, extraction, { now })` produces a structured comparison object (or `null` for a first file):
+
+```js
+{
+  added: [
+    // Newly populated fields or newly introduced items (Table A1, A5)
+    { section, scope: 'field' | 'item', field?, newIndex?, new }
+  ],
+  unchanged: [
+    // Identical values, format-only differences (A2), or stored value with higher precision (A3)
+    { section, storedIndex, storedId, newIndex, field, reason: 'identical' | 'format_only' | 'less_precise' }
+  ],
+  precisionUpgrades: [
+    // New date with higher precision than stored date (A3)
+    { section, storedIndex, storedId, newIndex, field, stored, new }
+  ],
+  uncertainMatches: [
+    // Same entity / organization with overlapping dates but different title / role (C3)
+    { section, reason: 'item_match_uncertain', newIndex, newItem, candidates: [{ storedIndex, storedId }] }
+  ],
+  differences: [
+    // Conflicting values passed to US-16 for decision (Table B / C)
+    { section, storedIndex, storedId, newIndex, field, stored, new }
+  ],
+  unknownSkills: [
+    // Skills not in the universal catalog (C7)
+    { section, newIndex, newItem }
+  ]
+}
+```
+
+### Worker compare step
+
+`createCompareStep({ db, now = () => new Date() })` in `worker/src/steps/compare.js` executes as part of the worker pipeline:
+
+- Loads stored data for `ctx.candidateId`.
+- Resolves extraction skill canonical names with `withSkillNames`.
+- Evaluates `ctx.diff = compareWithStored(...)` and `ctx.storedData`.
+- Performs read-only database queries (no writes).
+- Logs metric counts only: `{ jobId, firstFile, added, differences, uncertain }`.
