@@ -48,8 +48,31 @@ describe('US-10 store step integration', () => {
     expect(writeExtraction).toHaveBeenCalledWith({
       userId: 5,
       jobId: 10,
-      mappedData
+      mappedData,
+      reviewItems: [],
+      confidenceThreshold: 0.5
     });
+    expect(result.completedSteps).toContain('store');
+  });
+
+  it('adds the storage pending review count to the job context', async () => {
+    mapExtractionToStorage.mockReturnValue({ profile: {}, items: {} });
+    writeExtraction.mockResolvedValue({
+      candidateId: 1,
+      jobId: 10,
+      pendingReviewCount: 2
+    });
+
+    const ctx = {
+      userId: 5,
+      jobId: 10,
+      extraction: { candidate: {}, work_experience: [] },
+      completedSteps: []
+    };
+
+    const result = await runSteps(ctx, [require('../src/steps/index')[6]]);
+
+    expect(result.pendingReviewCount).toBe(2);
     expect(result.completedSteps).toContain('store');
   });
 
@@ -79,5 +102,211 @@ describe('US-10 store step integration', () => {
     ).rejects.toThrow('Cannot store without a validated extraction.');
 
     expect(writeExtraction).not.toHaveBeenCalled();
+  });
+
+  it('routes low-confidence profile fields to human review', async () => {
+    const extraction = {
+      candidate: {
+        first_name: {
+          value: 'John',
+          confidence: 0.4,
+          evidence: 'Name found in CV'
+        },
+        last_name: {
+          value: 'Doe',
+          confidence: 0.9,
+          evidence: 'Last name found in CV'
+        }
+      }
+    };
+
+    const mappedData = {
+      profile: {
+        first_name: { ...extraction.candidate.first_name },
+        last_name: { ...extraction.candidate.last_name }
+      },
+      items: {}
+    };
+
+    mapExtractionToStorage.mockReturnValue(mappedData);
+    writeExtraction.mockResolvedValue({
+      candidateId: 1,
+      jobId: 10,
+      pendingReviewCount: 1
+    });
+
+    const ctx = {
+      userId: 5,
+      jobId: 10,
+      extraction,
+      completedSteps: []
+    };
+
+    const storeStep = require('../src/steps/index')[6];
+    const result = await runSteps(ctx, [storeStep]);
+
+    expect(writeExtraction).toHaveBeenCalledWith({
+      userId: 5,
+      jobId: 10,
+      mappedData: {
+        profile: {
+          last_name: extraction.candidate.last_name
+        },
+        items: {}
+      },
+      reviewItems: [
+        {
+          targetType: 'conflict',
+          reviewReason: 'low_confidence',
+          itemType: 'candidate_profile',
+          fieldName: 'first_name',
+          options: [
+            {
+              value: 'John',
+              confidence: 0.4,
+              evidence: 'Name found in CV'
+            }
+          ]
+        }
+      ],
+      confidenceThreshold: 0.5
+    });
+
+    expect(result.pendingReviewCount).toBe(1);
+  });
+
+  it('routes validation failures in profile fields to human review', async () => {
+    const extraction = {
+      candidate: {
+        phone: {
+          value: '+970599123456',
+          confidence: 0.9,
+          evidence: 'Phone: +970599123456'
+        }
+      }
+    };
+
+    const mappedData = {
+      profile: {},
+      items: {}
+    };
+
+    mapExtractionToStorage.mockReturnValue(mappedData);
+    writeExtraction.mockResolvedValue({
+      candidateId: 1,
+      jobId: 10,
+      pendingReviewCount: 1
+    });
+
+    const ctx = {
+      userId: 5,
+      jobId: 10,
+      extraction,
+      failedChecks: [
+        {
+          section: 'candidate',
+          index: null,
+          field: 'phone',
+          reason: 'invalid_phone'
+        }
+      ],
+      completedSteps: []
+    };
+
+    const result = await runSteps(ctx, [require('../src/steps/index')[6]]);
+
+    expect(writeExtraction).toHaveBeenCalledWith({
+      userId: 5,
+      jobId: 10,
+      mappedData,
+      reviewItems: [
+        {
+          targetType: 'conflict',
+          reviewReason: 'validation_failure',
+          itemType: 'candidate_profile',
+          fieldName: 'phone',
+          options: [
+            {
+              value: '+970599123456',
+              confidence: 0.9,
+              evidence: 'Phone: +970599123456'
+            }
+          ]
+        }
+      ],
+      confidenceThreshold: 0.5
+    });
+
+    expect(result.pendingReviewCount).toBe(1);
+  });
+
+  it('routes validation failures in item fields to human review', async () => {
+    const extraction = {
+      candidate: {},
+      work_experience: [
+        {
+          start_date: {
+            value: 'invalid-date',
+            confidence: 0.8,
+            evidence: 'From 2020-99'
+          }
+        }
+      ]
+    };
+
+    const mappedData = { profile: {}, items: { work_experience: [] } };
+    mapExtractionToStorage.mockReturnValue(mappedData);
+    writeExtraction.mockResolvedValue({
+      candidateId: 1,
+      jobId: 10,
+      pendingReviewCount: 1
+    });
+
+    const ctx = {
+      userId: 5,
+      jobId: 10,
+      extraction,
+      failedChecks: [
+        {
+          section: 'work_experience',
+          index: 0,
+          field: 'start_date',
+          reason: 'invalid_date'
+        }
+      ],
+      completedSteps: []
+    };
+
+    const result = await runSteps(ctx, [require('../src/steps/index')[6]]);
+
+    expect(writeExtraction).toHaveBeenCalledWith({
+      userId: 5,
+      jobId: 10,
+      mappedData: {
+        profile: {},
+        items: { work_experience: [] }
+      },
+      reviewItems: [
+        {
+          targetType: 'conflict',
+          reviewReason: 'validation_failure',
+          itemType: 'work_experience',
+          itemId: null,
+          fieldName: 'start_date',
+          section: 'work_experience',
+          sourceIndex: 0,
+          options: [
+            {
+              value: 'invalid-date',
+              confidence: 0.8,
+              evidence: 'From 2020-99'
+            }
+          ]
+        }
+      ],
+      confidenceThreshold: 0.5
+    });
+
+    expect(result.pendingReviewCount).toBe(1);
   });
 });

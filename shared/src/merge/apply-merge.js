@@ -13,6 +13,9 @@ const {
   buildDeduplicationKey,
   DEDUPLICATION_FIELDS
 } = require('../deduplication');
+const {
+  createReviews: defaultCreateReviews
+} = require('./create-merge-reviews');
 
 const CANDIDATE_FIELDS = [
   'first_name',
@@ -68,14 +71,6 @@ function getMappedWrapper(mapped, section, sourceIndex, fieldName) {
 }
 
 /**
- * Default review creation hook. US-17 replaces this default hook
- * when human reviews and conflicts rows are wired.
- *
- * @returns {Promise<number>}
- */
-const defaultCreateReviews = async () => 0;
-
-/**
  * Merges a later uploaded file extraction with stored candidate data inside
  * an active database transaction.
  *
@@ -121,6 +116,7 @@ async function applyMerge(
   // D5a. Field fills (A1 on matched items)
   // -------------------------------------------------------------------------
   let fieldsFilledCount = 0;
+  const lowConfidenceFieldFills = [];
   for (const entry of diff.added || []) {
     if (entry.scope !== 'field') continue;
     if (entry.section === 'candidate' || entry.section === 'skills') continue;
@@ -136,6 +132,24 @@ async function applyMerge(
     const itemType = SECTION_TO_ITEM_TYPE[entry.section];
     if (!itemType) {
       throw new Error(`Unsupported section for field fill: ${entry.section}`);
+    }
+
+    if (
+      typeof mappedWrapper.confidence === 'number' &&
+      mappedWrapper.confidence < effectiveThreshold
+    ) {
+      lowConfidenceFieldFills.push({
+        reason: 'low_confidence',
+        rule: 'C6',
+        section: entry.section,
+        itemType,
+        itemId: String(entry.storedId),
+        field: entry.field,
+        stored: null,
+        new: mappedWrapper.value,
+        wrapper: mappedWrapper
+      });
+      continue;
     }
     const tableName = PROVENANCE_TABLES[itemType];
     if (!tableName) {
@@ -449,13 +463,19 @@ async function applyMerge(
     section: u.section,
     newIndex: u.newIndex
   }));
-  const reviewItems = [...(decision.reviews || []), ...uncertainReviewItems];
+  const reviewItems = [
+    ...(decision.reviews || []),
+    ...uncertainReviewItems,
+    ...lowConfidenceFieldFills
+  ];
 
   const pendingReviewCount = await createReviews(client, {
     candidateId,
     fileId,
     jobId,
-    reviewItems
+    reviewItems,
+    diff,
+    mapped
   });
 
   // -------------------------------------------------------------------------

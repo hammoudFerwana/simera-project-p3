@@ -27,7 +27,6 @@ function loadConfig(options = {}) {
     );
     process.exit(1);
   }
-
   const config = {
     NODE_ENV: env.NODE_ENV,
     API_PORT: env.API_PORT ? parseInt(env.API_PORT, 10) : 3000,

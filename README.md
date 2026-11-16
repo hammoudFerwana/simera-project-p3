@@ -1313,6 +1313,49 @@ The table below defines expected responses across all endpoints on develop for u
   - **Prompt isolation (AC5)**: verifies that untrusted CV text is strictly encapsulated within `<cv_text>` tags with closing tag sanitization, and the system prompt explicitly commands the model to treat document content as data and ignore embedded instructions.
   - **Obedience defense (AC5)**: verifies that if an LLM obeys prompt injection instructions and returns invented values without corresponding evidence in the source document, code validation flags them as `evidence_not_found` and mapper logic prevents invented data from persisting.
 
+## Review routing (US-17)
+
+The worker sends every case it cannot decide safely to human review. Undisputed fields are saved at once.
+
+### Review reasons
+
+| Reason                  | Rule       | Where it comes from                                                                |
+| ----------------------- | ---------- | ---------------------------------------------------------------------------------- |
+| `conflict`              | C1, C2, D2 | Rules engine on a later file (US-16)                                               |
+| `item_match_uncertain`  | C3         | Compare step on a later file (US-15)                                               |
+| `intra_source_conflict` | C4         | One file states two values for the same item (storage writer)                      |
+| `validation_failure`    | C5         | Code validation (US-09, US-14), on profile fields and item fields                  |
+| `low_confidence`        | C6         | A value below the review threshold                                                 |
+| `unknown_skill`         | C7         | Skill normalization (US-13). Resolved through the unknown skills endpoints (US-19) |
+
+Every review is built by `createReviewItem` and saved by `saveReviewItems` (`shared/src/review-items.js`), inside the job's storage transaction.
+
+### Threshold
+
+`REVIEW_CONFIDENCE_THRESHOLD` (default `0.5`). The store step reads it once per job, so a new value applies to the next file without a code change.
+
+### First file and later files
+
+- First file: only C4, C5, C6 and C7 apply.
+- A field below the threshold is not stored and stays empty with a pending review. A field that is part of the item's deduplication key (for example `job_title`, `company_name`, `start_date`) is stored, because the item cannot be matched without it, and still gets a pending review.
+- Later file: the rules engine reviews (C1, C2, C6, D2) and the uncertain matches (C3) are written through the same functions (`shared/src/merge/create-merge-reviews.js`). A low-confidence field fill on a matched item is not written and goes to review.
+- While a review is pending, the stored value stays (or the field stays empty) and the admin profile shows the field as pending.
+- A newer file on a field that already has a pending conflict adds one option to the same conflict.
+
+### Conflict options
+
+- Stored value option: the current stored value with the source file, confidence and evidence of its newest source row. All three are `null` when the stored value has no source row (for example a human-reviewed value).
+- New value option: the value from this file with its file, confidence and evidence.
+- C3: `field_name` is `__item__`, `item_id` is the stored item it may match, and the single option value is `{ "item": { ...columns }, "candidateStoredIds": [ids] }`. The new item is not inserted until an admin resolves it.
+
+### Counter
+
+`processing_jobs.pending_review_count` counts the new conflicts and new unknown skills of the job. An option added to an already pending conflict does not count. A job with a count above 0 ends as `completed_with_review`.
+
+### Note on two phone numbers
+
+The extraction schema has one phone field, so one file cannot carry two phone numbers. The intra-source case (C4) is covered by duplicate items in one file with different values.
+
 ## Testing and Code Quality
 
 - **Run Tests**:
