@@ -1,8 +1,7 @@
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
-
-import { logoutApi } from "../api/axiosAuthInstance";
+import { logoutApi } from '../api/axiosAuthInstance';
 
 const useLogout = () => {
   const queryClient = useQueryClient();
@@ -16,8 +15,8 @@ const useLogout = () => {
 
       queryClient.clear();
 
-      navigate("/auth/login", { replace: true });
-    },
+      navigate('/auth/login', { replace: true });
+    }
   });
 };
 
