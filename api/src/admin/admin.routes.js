@@ -10,6 +10,10 @@ const {
   validateSearchSkillsQuery,
   validateResolveUnknownSkillBody
 } = require('./unknown-skills.validation');
+const {
+  validateListReviewsQuery,
+  validateReviewId
+} = require('./reviews.validation');
 const { listCandidates, getCandidateProfile } = require('./candidates.service');
 const { getCandidateHistory } = require('./history.service');
 const {
@@ -18,6 +22,7 @@ const {
   searchSkills,
   resolveUnknownSkill
 } = require('./unknown-skills.service');
+const { listReviews, getReviewById } = require('./reviews.service');
 
 /**
  * Creates the admin router mounted at /api/admin.
@@ -157,6 +162,39 @@ function createAdminRouter({ getDb }) {
         }
         return res.status(error.status).json(payload);
       }
+      return next(error);
+    }
+  });
+
+  router.get('/reviews', async (req, res, next) => {
+    const validation = validateListReviewsQuery(req.query);
+    if (!validation.success) {
+      return res.status(400).json({ errors: validation.errors });
+    }
+
+    try {
+      const result = await listReviews(getDb(), validation.data);
+      return res.status(200).json(result);
+    } catch (error) {
+      return next(error);
+    }
+  });
+
+  router.get('/reviews/:id', async (req, res, next) => {
+    const validation = validateReviewId(req.params.id);
+    if (!validation.success) {
+      return res.status(400).json({ errors: validation.errors });
+    }
+
+    try {
+      const result = await getReviewById(getDb(), validation.data);
+      if (!result) {
+        return res
+          .status(404)
+          .json({ errors: { reviewId: 'Review not found' } });
+      }
+      return res.status(200).json(result);
+    } catch (error) {
       return next(error);
     }
   });
