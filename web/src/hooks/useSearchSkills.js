@@ -14,11 +14,19 @@ const useSearchSkills = (q) => {
     return () => clearTimeout(timeoutId);
   }, [q]);
 
-  return useQuery({
+  const query = useQuery({
     queryKey: ['searchSkills', debouncedQuery],
     queryFn: () => searchSkillsApi(debouncedQuery.trim()),
     enabled: Boolean(debouncedQuery?.trim())
   });
+
+  const isDebouncing = q.trim() !== debouncedQuery.trim();
+
+  return {
+    ...query,
+    debouncedQuery,
+    isDebouncing
+  };
 };
 
 export default useSearchSkills;

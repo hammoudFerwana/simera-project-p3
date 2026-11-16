@@ -52,20 +52,18 @@ const formatSimilarity = (similarity) => {
   return `${(Number(similarity) * 100).toFixed(0)}%`;
 };
 
-const UnknownSkillReview = ({ open, skill, onClose }) => {
+const UnknownSkillReviewContent = ({ open, skill, onClose }) => {
   const [action, setAction] = useState('link');
   const [search, setSearch] = useState('');
   const [selectedSkillId, setSelectedSkillId] = useState('');
   const [canonicalName, setCanonicalName] = useState(
-    skill?.skillName || '',
+    skill.skillName || '',
   );
   const [reason, setReason] = useState('');
   const [confidence, setConfidence] = useState('');
 
   const searchQuery = useSearchSkills(search);
   const resolveMutation = useResolveUnknownSkill();
-
-  if (!skill) return null;
 
   const candidateName = [
     skill.candidate?.firstName,
@@ -95,6 +93,13 @@ const UnknownSkillReview = ({ open, skill, onClose }) => {
         ? Boolean(canonicalName.trim())
         : true) &&
     !resolveMutation.isPending;
+
+  const isSearchCurrent =
+    !searchQuery.isDebouncing &&
+    search.trim() === searchQuery.debouncedQuery.trim();
+
+  const showSearchResults =
+    action === 'link' && search.trim() !== '' && isSearchCurrent;
 
   const handleActionChange = (event) => {
     setAction(event.target.value);
@@ -141,9 +146,11 @@ const UnknownSkillReview = ({ open, skill, onClose }) => {
             <Typography variant="subtitle2" color="text.secondary">
               Unknown Skill
             </Typography>
+
             <Typography variant="h6" fontWeight={600}>
               {skill.skillName}
             </Typography>
+
             <Typography color="text.secondary">
               Status: {skill.status}
             </Typography>
@@ -155,7 +162,11 @@ const UnknownSkillReview = ({ open, skill, onClose }) => {
             <Typography variant="subtitle2" color="text.secondary">
               Candidate
             </Typography>
-            <Typography>{candidateName || 'Unnamed Candidate'}</Typography>
+
+            <Typography>
+              {candidateName || 'Unnamed Candidate'}
+            </Typography>
+
             <Typography color="text.secondary">
               {skill.candidate?.email || '-'}
             </Typography>
@@ -167,12 +178,15 @@ const UnknownSkillReview = ({ open, skill, onClose }) => {
             <Typography variant="subtitle2" color="text.secondary">
               Source File
             </Typography>
+
             <Typography>
               {skill.sourceFile?.originalFilename || '-'}
             </Typography>
+
             <Typography color="text.secondary">
               Source: {skill.sourceFile?.sourceType || '-'}
             </Typography>
+
             <Typography color="text.secondary">
               Uploaded:{' '}
               {skill.sourceFile?.uploadedAt
@@ -189,6 +203,7 @@ const UnknownSkillReview = ({ open, skill, onClose }) => {
             <Typography variant="subtitle2" color="text.secondary">
               Evidence
             </Typography>
+
             <Typography
               component="pre"
               sx={{
@@ -208,6 +223,7 @@ const UnknownSkillReview = ({ open, skill, onClose }) => {
             <Typography variant="subtitle2" color="text.secondary">
               Original Confidence
             </Typography>
+
             <Typography>
               {skill.confidence !== null &&
               skill.confidence !== undefined &&
@@ -236,9 +252,17 @@ const UnknownSkillReview = ({ open, skill, onClose }) => {
                 value={action}
                 onChange={handleActionChange}
               >
-                <MenuItem value="link">Link to Existing Skill</MenuItem>
-                <MenuItem value="add">Add New Skill</MenuItem>
-                <MenuItem value="reject">Reject Skill</MenuItem>
+                <MenuItem value="link">
+                  Link to Existing Skill
+                </MenuItem>
+
+                <MenuItem value="add">
+                  Add New Skill
+                </MenuItem>
+
+                <MenuItem value="reject">
+                  Reject Skill
+                </MenuItem>
               </TextField>
 
               {action === 'link' && (
@@ -255,37 +279,55 @@ const UnknownSkillReview = ({ open, skill, onClose }) => {
                     }}
                   />
 
-                  {searchQuery.isFetching && (
-                    <CircularProgress size={20} sx={{ mt: 1 }} />
-                  )}
+                  {search.trim() !== '' &&
+                    (searchQuery.isDebouncing ||
+                      searchQuery.isFetching) && (
+                      <CircularProgress
+                        size={20}
+                        sx={{ mt: 1 }}
+                      />
+                    )}
 
-                  {searchQuery.isError && (
+                  {showSearchResults && searchQuery.isError && (
                     <Alert severity="error" sx={{ mt: 1 }}>
                       Failed to search skills.
                     </Alert>
                   )}
 
-                  {searchQuery.data?.items?.map((item) => (
-                    <Button
-                      key={item.id}
-                      fullWidth
-                      variant={
-                        selectedSkillId === String(item.id)
-                          ? 'contained'
-                          : 'outlined'
-                      }
-                      onClick={() => setSelectedSkillId(String(item.id))}
-                      sx={{ mt: 1, justifyContent: 'space-between' }}
-                    >
-                      {item.canonicalName}
-                      <span>{formatSimilarity(item.similarity)}</span>
-                    </Button>
-                  ))}
+                  {showSearchResults &&
+                    searchQuery.data?.items?.map((item) => (
+                      <Button
+                        key={item.id}
+                        fullWidth
+                        variant={
+                          selectedSkillId === String(item.id)
+                            ? 'contained'
+                            : 'outlined'
+                        }
+                        onClick={() =>
+                          setSelectedSkillId(String(item.id))
+                        }
+                        sx={{
+                          mt: 1,
+                          justifyContent: 'space-between',
+                        }}
+                      >
+                        {item.canonicalName}
 
-                  {search.trim() &&
+                        <span>
+                          {formatSimilarity(item.similarity)}
+                        </span>
+                      </Button>
+                    ))}
+
+                  {showSearchResults &&
                     !searchQuery.isFetching &&
+                    !searchQuery.isError &&
                     searchQuery.data?.items?.length === 0 && (
-                      <Typography color="text.secondary" sx={{ mt: 1 }}>
+                      <Typography
+                        color="text.secondary"
+                        sx={{ mt: 1 }}
+                      >
                         No matching skills found.
                       </Typography>
                     )}
@@ -298,7 +340,9 @@ const UnknownSkillReview = ({ open, skill, onClose }) => {
                   size="small"
                   label="Canonical Skill Name"
                   value={canonicalName}
-                  onChange={(event) => setCanonicalName(event.target.value)}
+                  onChange={(event) =>
+                    setCanonicalName(event.target.value)
+                  }
                 />
               )}
 
@@ -308,8 +352,14 @@ const UnknownSkillReview = ({ open, skill, onClose }) => {
                 type="number"
                 label="Review Confidence (0-1)"
                 value={confidence}
-                onChange={(event) => setConfidence(event.target.value)}
-                inputProps={{ min: 0, max: 1, step: 0.01 }}
+                onChange={(event) =>
+                  setConfidence(event.target.value)
+                }
+                inputProps={{
+                  min: 0,
+                  max: 1,
+                  step: 0.01,
+                }}
                 error={confidence !== '' && !isValidConfidence}
                 helperText="Required. Enter a value between 0 and 1."
               />
@@ -358,6 +408,19 @@ const UnknownSkillReview = ({ open, skill, onClose }) => {
         )}
       </DialogActions>
     </Dialog>
+  );
+};
+
+const UnknownSkillReview = ({ open, skill, onClose }) => {
+  if (!skill) return null;
+
+  return (
+    <UnknownSkillReviewContent
+      key={skill.id}
+      open={open}
+      skill={skill}
+      onClose={onClose}
+    />
   );
 };
 
