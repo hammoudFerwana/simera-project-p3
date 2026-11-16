@@ -43,6 +43,10 @@ describe('Returning candidate merge (US-21)', () => {
   afterAll(async () => {
     if (createdCandidateIds.length > 0) {
       await pool.query(
+        'DELETE FROM human_reviews WHERE candidate_id = ANY($1::int[])',
+        [createdCandidateIds]
+      );
+      await pool.query(
         `DELETE FROM conflict_options
          WHERE conflict_id IN (SELECT id FROM conflicts WHERE candidate_id = ANY($1::int[]))`,
         [createdCandidateIds]

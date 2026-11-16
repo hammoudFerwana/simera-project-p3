@@ -1,7 +1,13 @@
 const { mapExtractionToStorage } = require('shared/src/mapper');
 const { writeExtraction } = require('shared/src/storage-writer');
-const { readThreshold } = require('shared/src/rules/latest-rules');
+const {
+  readThreshold,
+  SECTION_TO_ITEM_TYPE
+} = require('shared/src/rules/latest-rules');
 const { applyMerge } = require('shared/src/merge/apply-merge');
+const {
+  createReviews: defaultCreateReviews
+} = require('shared/src/merge/create-merge-reviews');
 
 /**
  * Creates the store step for writing extraction data to storage.
@@ -18,7 +24,7 @@ const { applyMerge } = require('shared/src/merge/apply-merge');
 function createStoreStep({
   db: _db,
   writer = writeExtraction,
-  createReviews,
+  createReviews = defaultCreateReviews,
   now = () => new Date(),
   log = console.log
 } = {}) {
@@ -27,20 +33,186 @@ function createStoreStep({
       throw new Error('Cannot store without a validated extraction.');
     }
 
+    const threshold = readThreshold(process.env);
+    const currentDate = now();
+
     const mappedData = mapExtractionToStorage(
       ctx.extraction,
       ctx.failedChecks || [],
       ctx.skillResolutions || []
     );
 
-    // D2: A first file (ctx.storedData === null) goes through the store step exactly as today.
+    const safeProfile = { ...mappedData.profile };
+    const reviewItems = [];
+    const failedChecks = ctx.failedChecks || [];
+
+    // Candidate validation_failure reviews from ctx.failedChecks
+    for (const check of failedChecks) {
+      if (check.section !== 'candidate') {
+        continue;
+      }
+
+      const wrapper = ctx.extraction.candidate?.[check.field];
+
+      if (
+        !wrapper ||
+        wrapper.value === null ||
+        wrapper.value === undefined ||
+        typeof wrapper.evidence !== 'string' ||
+        !wrapper.evidence.trim()
+      ) {
+        continue;
+      }
+
+      reviewItems.push({
+        targetType: 'conflict',
+        reviewReason: 'validation_failure',
+        itemType: 'candidate_profile',
+        fieldName: check.field,
+        options: [
+          {
+            value: wrapper.value,
+            confidence: wrapper.confidence,
+            evidence: wrapper.evidence
+          }
+        ]
+      });
+    }
+
+    // Low-confidence candidate profile fields removed from profile and sent as low_confidence reviews
+    for (const [fieldName, wrapper] of Object.entries(
+      ctx.extraction.candidate || {}
+    )) {
+      const alreadyFailed = failedChecks.some(
+        (check) => check.section === 'candidate' && check.field === fieldName
+      );
+
+      if (
+        !alreadyFailed &&
+        wrapper?.value !== null &&
+        wrapper?.value !== undefined &&
+        typeof wrapper.confidence === 'number' &&
+        wrapper.confidence < threshold
+      ) {
+        reviewItems.push({
+          targetType: 'conflict',
+          reviewReason: 'low_confidence',
+          itemType: 'candidate_profile',
+          fieldName,
+          options: [
+            {
+              value: wrapper.value,
+              confidence: wrapper.confidence,
+              evidence: wrapper.evidence
+            }
+          ]
+        });
+
+        delete safeProfile[fieldName];
+      }
+    }
+
+    // Item validation_failure (D4)
+    for (const check of failedChecks) {
+      if (check.section === 'candidate' || check.section === 'skills') {
+        continue;
+      }
+
+      const itemType = SECTION_TO_ITEM_TYPE[check.section];
+      if (!itemType) {
+        continue;
+      }
+
+      const rawWrapper =
+        ctx.extraction?.[check.section]?.[check.index]?.[check.field];
+
+      if (
+        !rawWrapper ||
+        rawWrapper.value === null ||
+        rawWrapper.value === undefined ||
+        typeof rawWrapper.evidence !== 'string' ||
+        !rawWrapper.evidence.trim()
+      ) {
+        continue;
+      }
+
+      let itemId = null;
+
+      // b. For a matched item on a later file: storedId from ctx.diff
+      if (ctx.diff) {
+        const diffEntries = [
+          ...(ctx.diff.differences || []),
+          ...(ctx.diff.unchanged || []),
+          ...(ctx.diff.precisionUpgrades || []),
+          ...(ctx.diff.added || []).filter((e) => e.scope === 'field')
+        ];
+        const match = diffEntries.find(
+          (e) => e.section === check.section && e.newIndex === check.index
+        );
+        if (match && match.storedId != null) {
+          itemId = String(match.storedId);
+        }
+      }
+
+      // If later file and not matched and not in added items: check if it's an added item
+      if (ctx.diff && itemId === null) {
+        const isAddedItem = (ctx.diff.added || []).some(
+          (e) =>
+            e.scope === 'item' &&
+            e.section === check.section &&
+            e.newIndex === check.index
+        );
+        if (!isAddedItem) {
+          log({
+            jobId: ctx.jobId,
+            section: check.section,
+            reason: 'validation_failure_item_not_found'
+          });
+          continue;
+        }
+      }
+
+      reviewItems.push({
+        targetType: 'conflict',
+        reviewReason: 'validation_failure',
+        itemType,
+        itemId,
+        fieldName: check.field,
+        section: check.section,
+        sourceIndex: check.index,
+        options: [
+          {
+            value: rawWrapper.value,
+            confidence: rawWrapper.confidence,
+            evidence: rawWrapper.evidence
+          }
+        ]
+      });
+    }
+
+    // D2: A first file (ctx.storedData === null) goes through the store step
     if (!ctx.storedData) {
-      await writer({
+      const storageResult = await writer({
         userId: ctx.userId,
         jobId: ctx.jobId,
-        mappedData
+        mappedData: {
+          ...mappedData,
+          profile: safeProfile
+        },
+        reviewItems,
+        confidenceThreshold: threshold
       });
+
+      ctx.pendingReviewCount = storageResult?.pendingReviewCount || 0;
       ctx.completedSteps = [...(ctx.completedSteps || []), 'store'];
+
+      log({
+        jobId: ctx.jobId,
+        candidateId: ctx.candidateId ?? storageResult?.candidateId,
+        changedFieldCount: ctx.changedFieldCount ?? 0,
+        pendingReviewCount: ctx.pendingReviewCount ?? 0
+      });
+
       return ctx;
     }
 
@@ -68,14 +240,11 @@ function createStoreStep({
     }
 
     const mappedDataForWriter = {
-      profile: mappedData.profile,
+      profile: safeProfile,
       items: reducedItems,
       skills: mappedData.skills,
       processing: mappedData.processing
     };
-
-    const threshold = readThreshold(process.env);
-    const currentDate = now();
 
     let mergeResult = null;
     const beforeCommit = async (client, { candidateId, fileId, jobId }) => {
@@ -92,25 +261,30 @@ function createStoreStep({
       });
     };
 
-    await writer({
+    const storageResult = await writer({
       userId: ctx.userId,
       jobId: ctx.jobId,
       mappedData: mappedDataForWriter,
+      reviewItems,
+      confidenceThreshold: threshold,
       beforeCommit
     });
 
     if (mergeResult) {
       ctx.changedFieldCount = mergeResult.changedFieldCount;
-      ctx.pendingReviewCount = mergeResult.pendingReviewCount;
       ctx.reviewItems = mergeResult.reviewItems;
     }
+
+    ctx.pendingReviewCount =
+      (storageResult?.pendingReviewCount || 0) +
+      (mergeResult?.pendingReviewCount || 0);
 
     ctx.completedSteps = [...(ctx.completedSteps || []), 'store'];
 
     // D9: Logs: ids and counts only. Never values, evidence, names or CV text.
     log({
       jobId: ctx.jobId,
-      candidateId: ctx.candidateId,
+      candidateId: ctx.candidateId ?? storageResult?.candidateId,
       changedFieldCount: ctx.changedFieldCount ?? 0,
       pendingReviewCount: ctx.pendingReviewCount ?? 0
     });
