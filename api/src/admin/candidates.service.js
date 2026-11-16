@@ -28,6 +28,8 @@ async function listCandidates(db, query) {
 
   if (hasPendingReview === true) {
     whereClauses.push('pending_reviews.count > 0');
+  } else if (hasPendingReview === false) {
+    whereClauses.push('COALESCE(pending_reviews.count, 0) = 0');
   }
 
   if (search) {
