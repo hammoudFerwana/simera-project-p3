@@ -1034,12 +1034,13 @@ Returns up to 20 results sorted by similarity in descending order.
 
 **Error responses:**
 
-| Status | When                                                         | Body                                                                   |
-| ------ | ------------------------------------------------------------ | ---------------------------------------------------------------------- |
-| `400`  | Missing or invalid `q` parameter (empty or > 100 characters) | `{"errors":{"q":"Search query must be between 1 and 100 characters"}}` |
-| `401`  | Not logged in or invalid/expired token                       | `{"errors":{"auth":"Log in to continue"}}`                             |
-| `403`  | User does not have admin role                                | `{"errors":{"auth":"You do not have access to this resource"}}`        |
-| `500`  | Unexpected server error                                      | `{"errors":{"server":"Something went wrong"}}`                         |
+| Status | When                                   | Body                                                            |
+| ------ | -------------------------------------- | --------------------------------------------------------------- |
+| `400`  | `q` missing or empty after trim        | `{"errors":{"q":"Query is required"}}`                          |
+| `400`  | `q` longer than 100 characters         | `{"errors":{"q":"Query must be at most 100 characters"}}`       |
+| `401`  | Not logged in or invalid/expired token | `{"errors":{"auth":"Log in to continue"}}`                      |
+| `403`  | User does not have admin role          | `{"errors":{"auth":"You do not have access to this resource"}}` |
+| `500`  | Unexpected server error                | `{"errors":{"server":"Something went wrong"}}`                  |
 
 #### `POST /api/admin/unknown-skills/:id/resolve`
 
