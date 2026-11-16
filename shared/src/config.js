@@ -27,26 +27,9 @@ function loadConfig(options = {}) {
     );
     process.exit(1);
   }
-  const confidenceThreshold =
-    env.CONFIDENCE_THRESHOLD === undefined
-      ? 0.5
-      : Number(env.CONFIDENCE_THRESHOLD);
-
-  if (
-    env.CONFIDENCE_THRESHOLD !== undefined &&
-    (env.CONFIDENCE_THRESHOLD.trim() === '' ||
-      !Number.isFinite(confidenceThreshold) ||
-      confidenceThreshold < 0 ||
-      confidenceThreshold > 1)
-  ) {
-    console.error('CONFIDENCE_THRESHOLD must be a number between 0 and 1.');
-    process.exit(1);
-  }
-
   const config = {
     NODE_ENV: env.NODE_ENV,
     API_PORT: env.API_PORT ? parseInt(env.API_PORT, 10) : 3000,
-    CONFIDENCE_THRESHOLD: confidenceThreshold,
     DATABASE_URL: env.DATABASE_URL
   };
 
