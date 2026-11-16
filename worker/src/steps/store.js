@@ -16,7 +16,7 @@ const { applyMerge } = require('shared/src/merge/apply-merge');
  * @returns {Function} async (ctx) => ctx
  */
 function createStoreStep({
-  db,
+  db: _db,
   writer = writeExtraction,
   createReviews,
   now = () => new Date(),
