@@ -1,5 +1,4 @@
-
-import { useParams } from "react-router-dom";
+﻿import { useParams } from 'react-router-dom';
 
 import {
   Alert,
@@ -8,29 +7,24 @@ import {
   Container,
   Paper,
   Stack,
-  Typography,
-} from "@mui/material";
+  Typography
+} from '@mui/material';
 
-import useAdminCandidateProfile from "../../hooks/useAdminCandidateProfile";
+import useAdminCandidateProfile from '../../hooks/useAdminCandidateProfile';
 
-import CandidateHeader from "../../components/admin/candidate-profile/CandidateHeader";
-import CandidateProfileDetails from "../../components/admin/candidate-profile/CandidateProfileDetails";
-import SectionsList from "../../components/admin/candidate-profile/SectionsList";
-import CandidateFiles from "../../components/admin/candidate-profile/CandidateFiles";
+import CandidateHeader from '../../components/admin/candidate-profile/CandidateHeader';
+import CandidateProfileDetails from '../../components/admin/candidate-profile/CandidateProfileDetails';
+import SectionsList from '../../components/admin/candidate-profile/SectionsList';
+import CandidateFiles from '../../components/admin/candidate-profile/CandidateFiles';
 
 export default function CandidatesProfile() {
   const { id } = useParams();
 
-  const {
-    data,
-    isLoading,
-    isError,
-    error,
-  } = useAdminCandidateProfile(id);
+  const { data, isLoading, isError, error } = useAdminCandidateProfile(id);
 
   if (isLoading) {
     return (
-      <Box sx={{ display: "flex", justifyContent: "center", py: 8 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
         <CircularProgress />
       </Box>
     );
@@ -41,7 +35,7 @@ export default function CandidatesProfile() {
       <Container maxWidth="xl">
         <Alert severity="error">
           {error?.response?.data?.message ||
-            "Failed to load candidate profile."}
+            'Failed to load candidate profile.'}
         </Alert>
       </Container>
     );
@@ -50,9 +44,7 @@ export default function CandidatesProfile() {
   if (!data?.candidate) {
     return (
       <Container maxWidth="xl">
-        <Alert severity="warning">
-          Candidate not found.
-        </Alert>
+        <Alert severity="warning">Candidate not found.</Alert>
       </Container>
     );
   }
@@ -65,11 +57,11 @@ export default function CandidatesProfile() {
         <Typography
           variant="h4"
           sx={{
-            fontSize: { xs: "1.6rem", md: "1.9rem" },
+            fontSize: { xs: '1.6rem', md: '1.9rem' },
             fontWeight: 700,
-            color: "text.primary",
-            letterSpacing: "-0.5px",
-            mb: 1,
+            color: 'text.primary',
+            letterSpacing: '-0.5px',
+            mb: 1
           }}
         >
           Candidate Profile
@@ -77,21 +69,17 @@ export default function CandidatesProfile() {
 
         <Typography
           color="text.secondary"
-          sx={{ fontSize: "0.95rem", lineHeight: 1.7 }}
+          sx={{ fontSize: '0.95rem', lineHeight: 1.7 }}
         >
-          View candidate information, profile sections, data sources, and uploaded files.
+          View candidate information, profile sections, data sources, and
+          uploaded files.
         </Typography>
       </Box>
 
       <Stack spacing={3}>
-        <CandidateHeader
-          candidate={candidate}
-          profile={profile}
-        />
+        <CandidateHeader candidate={candidate} profile={profile} />
 
-        <CandidateProfileDetails
-          profile={profile}
-        />
+        <CandidateProfileDetails profile={profile} />
 
         <Box>
           <Typography variant="h6" fontWeight={700} sx={{ mb: 2 }}>
@@ -105,9 +93,9 @@ export default function CandidatesProfile() {
           elevation={0}
           sx={{
             p: { xs: 2, md: 3 },
-            border: "1px solid",
-            borderColor: "divider",
-            borderRadius: 3,
+            border: '1px solid',
+            borderColor: 'divider',
+            borderRadius: 3
           }}
         >
           <Typography variant="h6" fontWeight={700} sx={{ mb: 1 }}>
@@ -115,7 +103,7 @@ export default function CandidatesProfile() {
           </Typography>
 
           <Typography color="text.secondary">
-            {experience ?? "No overall experience value returned by the backend."}
+            {experience?.totalMonths ?? '—'} months{' '}
           </Typography>
         </Paper>
 
