@@ -74,7 +74,10 @@ function createApp({
     createUploadsRouter({ getDb, getStorage, enqueueJob, getUploadConfig })
   );
   app.use('/api/candidate', createCandidateRouter({ getDb }));
-  app.use('/api/admin', createAdminRouter({ getDb }));
+  app.use(
+    '/api/admin',
+    createAdminRouter({ getDb, getStorage, enqueueJob, getUploadConfig })
+  );
 
   // eslint-disable-next-line no-unused-vars
   app.use((error, req, res, next) => {

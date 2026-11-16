@@ -19,6 +19,7 @@ The first start creates the `pgboss` schema inside the database. No extra servic
 - Permanent failure (`PermanentError`): `failed` at once, no retry.
 - A failed job is never run again. The candidate uploads an updated file.
 - When the worker starts, it sends every job that is `queued` or `processing` to the queue. A job that was running when the worker died is picked up by the new worker at once (pg-boss alone would give it back only after 30 minutes). The candidate lock and the job state make a second delivery of the same job harmless.
+- While it runs, a **sweep** every `QUEUE_SWEEP_INTERVAL_SECONDS` (optional, default 60) sends again every job that is `queued` in `processing_jobs`, older than 60 seconds, and has no live pg-boss job (`created`, `retry` or `active`). This covers an API whose send to the queue failed after the commit (CV/LinkedIn upload, Simera send button), with no worker restart. A job waiting behind an older job of its candidate is in pg-boss as `retry`, so it's not sent twice. Unit tests: `npm test -- shared/test/queue-sweep.test.js`.
 - When a job ends, `completed_at`, `changed_field_count` and `pending_review_count` are set (or `failure_reason` if it failed).
 
 ## Steps
@@ -43,13 +44,12 @@ To replace a stub, change the entry in `worker/src/steps/index.js`. The orchestr
 
 `extractText` runs `extract(fileBuffer, mimeType)` from `shared/src/extraction/extract.js` on the raw uploaded file:
 
-- Fetches `storage_location`, `mime_type`, and `source_type` from `uploaded_files` for `ctx.fileId`.
+- Fetches `storage_location` and `mime_type` from `uploaded_files` for `ctx.fileId`.
 - Resolves the private storage path via `createLocalStorage` and reads the file bytes.
-- Extracts plain text and links (`[{ label, url }]`) for PDF, DOCX, or Markdown files.
+- Extracts plain text and links (`[{ label, url }]`) for PDF, DOCX, Markdown, or JSON (Simera, US-22) files. For JSON the raw text is the file text, and bare `http(s)`/`mailto` addresses are the links.
 - Sets `ctx.text` and `ctx.links` for the following steps (US-07 checks email, US-08 sends to the LLM, US-09 checks evidence).
 - Safe failure handling:
   - Missing file record: `PermanentError('Uploaded file not found')`
-  - Simera profile files: `PermanentError('Simera files are not supported yet')`
   - Unsupported MIME type: `PermanentError('Unsupported file type')`
   - Missing file on disk (ENOENT): `PermanentError('The uploaded file is missing')`
   - Other file system error: `TemporaryError('The uploaded file could not be opened')`
@@ -135,7 +135,7 @@ Checks that emails found in the file match the candidate's account login email (
 - `scripts/smoke-queue.js`: manual check of the ordering with real pg-boss.
 - `scripts/smoke-restart.js`: manual check that a job finishes after the worker is killed.
 - `scripts/smoke-llm.js`: manual check of LLM extraction on a CV file using live AI Studio credentials.
-- `../shared/src/queue.js`: pg-boss setup, `enqueueJob`, `enqueueUnfinishedJobs`, `startWorker` (shared with the API).
+- `../shared/src/queue.js`: pg-boss setup, `enqueueJob`, `enqueueUnfinishedJobs`, `enqueueLostJobs` / `startQueueSweep` (the periodic sweep), `startWorker` (shared with the API).
 
 ## LLM Extraction Step (US-08)
 
