@@ -1263,6 +1263,223 @@ Resolves an unknown skill by linking it to an existing canonical skill, adding i
 | `409`  | `add` action with existing canonical name (case-insensitive) | `{"errors":{"canonicalName":"Skill already exists, link it instead"},"existingSkillId":<id>}` |
 | `500`  | Unexpected server error                                      | `{"errors":{"server":"Something went wrong"}}`                                                |
 
+### Admin review queue (US-18)
+
+Reviews generated during CV/profile processing (conflicts, intra-source conflicts, low confidence values, validation failures, and uncertain item matches) are placed in the `human_reviews` queue. Administrators can inspect queue items, examine conflict options alongside raw uploaded source documents, and resolve conflicts in a single atomic transaction.
+
+#### `GET /api/admin/reviews`
+
+Returns a paginated list of review queue items with optional filtering by status, reason, and candidate ID, ordered newest first (`created_at DESC, id DESC`).
+
+**Authentication:** Requires a valid `access_token` cookie and an `admin` role.
+
+**Request:**
+
+- Query parameters:
+  - `status`: Optional filter (`pending`, `in_review`, `completed`). Defaults to `pending`.
+  - `reason`: Optional filter (`conflict`, `intra_source_conflict`, `low_confidence`, `validation_failure`, `item_match_uncertain`, `unknown_skill`).
+  - `candidateId`: Optional candidate profile ID filter (positive integer).
+  - `page`: Optional page number (positive integer, default `1`).
+  - `pageSize`: Optional page size (positive integer `1` to `100`, default `20`).
+
+**Success response (`200`):**
+
+```json
+{
+  "items": [
+    {
+      "id": 1,
+      "reason": "conflict",
+      "status": "pending",
+      "targetType": "conflict",
+      "createdAt": "2026-11-16T10:00:00.000Z",
+      "candidate": {
+        "id": 10,
+        "firstName": "Layla",
+        "lastName": "Khoury",
+        "email": "layla@example.com"
+      },
+      "itemType": "work_experience",
+      "itemId": "42",
+      "fieldName": "start_date",
+      "unknownSkillId": null
+    },
+    {
+      "id": 2,
+      "reason": "unknown_skill",
+      "status": "pending",
+      "targetType": "unknown_skill",
+      "createdAt": "2026-11-16T10:05:00.000Z",
+      "candidate": {
+        "id": 10,
+        "firstName": "Layla",
+        "lastName": "Khoury",
+        "email": "layla@example.com"
+      },
+      "itemType": "candidate_skills",
+      "itemId": null,
+      "fieldName": null,
+      "unknownSkillId": 15
+    }
+  ],
+  "page": 1,
+  "pageSize": 20,
+  "total": 2
+}
+```
+
+#### `GET /api/admin/reviews/:id`
+
+Retrieves detailed information for a single review item. For conflict reviews, returns candidate details, conflict metadata, the current stored value from the candidate profile, and all competing options with source file metadata and raw document links. For unknown skill reviews, returns candidate details and the `unknownSkillId` to link to US-19 resolution. Opening the detail view does not alter the review status.
+
+**Authentication:** Requires a valid `access_token` cookie and an `admin` role.
+
+**Request:**
+
+- Path parameters:
+  - `id`: Review ID (positive integer).
+
+**Success response (`200`) — Conflict review:**
+
+```json
+{
+  "id": 1,
+  "reason": "conflict",
+  "status": "pending",
+  "targetType": "conflict",
+  "createdAt": "2026-11-16T10:00:00.000Z",
+  "candidate": {
+    "id": 10,
+    "firstName": "Layla",
+    "lastName": "Khoury",
+    "email": "layla@example.com"
+  },
+  "conflict": {
+    "id": 5,
+    "itemType": "work_experience",
+    "itemId": "42",
+    "fieldName": "start_date",
+    "status": "pending"
+  },
+  "storedValue": "2019-05",
+  "options": [
+    {
+      "id": 101,
+      "value": "2019-05",
+      "confidence": 0.88,
+      "evidence": "May 2019 start in experience",
+      "sourceFile": {
+        "id": 12,
+        "sourceType": "cv",
+        "originalFilename": "resume_2019.pdf",
+        "uploadedAt": "2026-11-16T09:00:00.000Z",
+        "rawUrl": "/api/uploads/12/raw"
+      }
+    },
+    {
+      "id": 102,
+      "value": "2019-08",
+      "confidence": 0.94,
+      "evidence": "August 2019 updated header",
+      "sourceFile": {
+        "id": 14,
+        "sourceType": "cv",
+        "originalFilename": "resume_2022.pdf",
+        "uploadedAt": "2026-11-16T09:30:00.000Z",
+        "rawUrl": "/api/uploads/14/raw"
+      }
+    }
+  ]
+}
+```
+
+_Note for C3 (`item_match_uncertain`):_ `fieldName` is `'__item__'`, and `storedValue` returns the entire existing item row (restricted to whitelisted columns).
+
+**Success response (`200`) — Unknown skill review:**
+
+```json
+{
+  "id": 2,
+  "reason": "unknown_skill",
+  "status": "pending",
+  "targetType": "unknown_skill",
+  "createdAt": "2026-11-16T10:05:00.000Z",
+  "candidate": {
+    "id": 10,
+    "firstName": "Layla",
+    "lastName": "Khoury",
+    "email": "layla@example.com"
+  },
+  "unknownSkillId": 15
+}
+```
+
+#### `POST /api/admin/reviews/:id/resolve`
+
+Resolves a review within a single atomic database transaction using row-level locking (`FOR UPDATE`). Updates the target profile item, recomputes deduplication keys when key fields change, updates conflict and review statuses, upserts provenance records to `human_reviewed` (clearing source file associations), and records a `human_audit_log` entry when values change.
+
+**Authentication:** Requires a valid `access_token` cookie and an `admin` role.
+
+**Request:**
+
+- Path parameters:
+  - `id`: Review ID (positive integer).
+- Body (`application/json`):
+  - `action`: Required string enum (`choose`, `manual`, `merge`, `add`).
+  - `optionId`: Required when `action === 'choose'` (integer ID of the conflict option).
+  - `value`: Required when `action === 'manual'` (new value matching column data type; `null` allowed for nullable columns).
+  - `confidence`: Required number between `0` and `1` (inclusive).
+  - `reason`: Optional string explaining the resolution decision.
+
+**Resolution Actions:**
+
+1. `choose`: Applies the selected `optionId` value to the conflict field.
+2. `manual`: Applies the specified manual value to the conflict field, marking it as human reviewed without source file backing.
+3. `merge` (C3 `item_match_uncertain` only): Merges the candidate item into the existing stored item by filling only empty (`null` or empty string) columns from the candidate item. Never overwrites existing non-empty values.
+4. `add` (C3 `item_match_uncertain` only): Inserts the candidate item as a new, distinct item for the candidate.
+
+**Key Collision Safety (D11):**
+When a resolved value modifies any deduplication key column (e.g., `company_name`, `job_title`, or `start_date` on work experience), the deduplication key is recomputed. If the resulting key collides with another existing item for the same candidate, the transaction aborts with `409 Conflict` and rolls back all changes.
+
+**Non-Freeze Invariant (AC9):**
+Setting a human-reviewed value does not permanently freeze the field. Subsequent file uploads with valid new values (B2 rules) will update the field and clear the human-reviewed flag normally.
+
+**Success response (`200`):**
+
+```json
+{
+  "success": true,
+  "reviewId": 1,
+  "conflictId": 5,
+  "action": "choose",
+  "appliedValue": "2019-08"
+}
+```
+
+#### Error responses
+
+| Status | When                                                                                       | Body                                                                                                                                   |
+| ------ | ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `400`  | Invalid query parameter in listing (`page`, `pageSize`, `status`, `reason`, `candidateId`) | `{"errors":{"<field>":"<message>"}}`                                                                                                   |
+| `400`  | Invalid review ID in path                                                                  | `{"errors":{"reviewId":"Review id must be a positive integer"}}`                                                                       |
+| `400`  | Confidence missing                                                                         | `{"errors":{"confidence":"Confidence is required"}}`                                                                                   |
+| `400`  | Confidence outside 0..1                                                                    | `{"errors":{"confidence":"Confidence must be a number between 0 and 1"}}`                                                              |
+| `400`  | Invalid or missing action                                                                  | `{"errors":{"action":"Action must be one of: choose, manual, merge, add"}}`                                                            |
+| `400`  | `choose` action with missing `optionId`                                                    | `{"errors":{"optionId":"optionId is required when action is choose"}}`                                                                 |
+| `400`  | `choose` action with `optionId` belonging to another conflict                              | `{"errors":{"optionId":"Option does not belong to this conflict"}}`                                                                    |
+| `400`  | `manual` action with missing `value`                                                       | `{"errors":{"value":"Value is required for manual action"}}`                                                                           |
+| `400`  | `manual` action value does not match column type                                           | `{"errors":{"value":"<Type validation error>"}}`                                                                                       |
+| `400`  | `merge` or `add` requested on a non-C3 review                                              | `{"errors":{"action":"Action merge/add is only valid for item_match_uncertain conflicts"}}`                                            |
+| `400`  | `choose` or `manual` requested on a C3 review                                              | `{"errors":{"action":"Action choose/manual is not valid for item_match_uncertain conflicts"}}`                                         |
+| `401`  | Not logged in or invalid/expired session token                                             | `{"errors":{"auth":"Log in to continue"}}`                                                                                             |
+| `403`  | User does not have admin role (e.g. candidate user)                                        | `{"errors":{"auth":"You do not have access to this resource"}}`                                                                        |
+| `404`  | Review not found                                                                           | `{"errors":{"reviewId":"Review not found"}}`                                                                                           |
+| `409`  | Attempting to resolve an `unknown_skill` review via reviews endpoint                       | `{"errors":{"reviewId":"Unknown skill reviews must be resolved through /api/admin/unknown-skills/:id/resolve","unknownSkillId":<id>}}` |
+| `409`  | Review is already completed                                                                | `{"errors":{"reviewId":"Review is already completed"}}`                                                                                |
+| `409`  | Conflict is already resolved                                                               | `{"errors":{"conflictId":"Conflict is already resolved"}}`                                                                             |
+| `409`  | Deduplication key collision with existing item                                             | `{"errors":{"deduplicationKey":"An item with the same deduplication key already exists for this candidate"}}`                          |
+| `500`  | Unexpected server error                                                                    | `{"errors":{"server":"Something went wrong"}}`                                                                                         |
+
 ### Security and permissions (US-24)
 
 Automated security verification covering endpoint permissions, cross-candidate data isolation, password storage, log sanitization, safe file handling, and prompt injection defenses.
