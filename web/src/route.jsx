@@ -10,7 +10,6 @@ import VerifyOTP from './pages/auth/VerifyOTP';
 import ProtectedRoute from '../src/ProtectedRoute';
 
 import CandidateDashboard from './pages/candidate/CandidateDashboard';
-import AdminDashboard from './pages/admin/AdminDashboard';
 
 import MyFiles from './pages/candidate/MyFiles';
 import Candidates from './pages/admin/Candidates';
@@ -49,32 +48,28 @@ const router = createBrowserRouter([
   },
 
   // Admin
-  {
-    element: <ProtectedRoute allowedRoles={['admin']} />,
-    children: [
-      {
-        element: <MainLayout />,
-        children: [
-          {
-            path: '/admin',
-            element: <AdminDashboard />
-          },
-          {
-            path: '/admin/candidates',
-            element: <Candidates />
-          },
-          {
-            path: '/admin/review-queue',
-            element: <ReviewQueue />
-          },
-          {
-            path: '/admin/candidates/:id',
-            element: <CandidatesProfile />
-          }
-        ]
-      }
-    ]
-  }
+{
+  element: <ProtectedRoute allowedRoles={['admin']} />,
+  children: [
+    {
+      element: <MainLayout />,
+      children: [
+        {
+          path: '/admin/candidates',
+          element: <Candidates />
+        },
+        {
+          path: '/admin/review-queue',
+          element: <ReviewQueue />
+        },
+        {
+          path: '/admin/candidates/:id',
+          element: <CandidatesProfile />
+        }
+      ]
+    }
+  ]
+}
 ]);
 
 export default router;
