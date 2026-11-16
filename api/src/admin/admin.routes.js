@@ -12,7 +12,8 @@ const {
 } = require('./unknown-skills.validation');
 const {
   validateListReviewsQuery,
-  validateReviewId
+  validateReviewId,
+  validateResolveReviewBody
 } = require('./reviews.validation');
 const { listCandidates, getCandidateProfile } = require('./candidates.service');
 const { getCandidateHistory } = require('./history.service');
@@ -22,7 +23,11 @@ const {
   searchSkills,
   resolveUnknownSkill
 } = require('./unknown-skills.service');
-const { listReviews, getReviewById } = require('./reviews.service');
+const {
+  listReviews,
+  getReviewById,
+  resolveReview
+} = require('./reviews.service');
 
 /**
  * Creates the admin router mounted at /api/admin.
@@ -195,6 +200,33 @@ function createAdminRouter({ getDb }) {
       }
       return res.status(200).json(result);
     } catch (error) {
+      return next(error);
+    }
+  });
+
+  router.post('/reviews/:id/resolve', async (req, res, next) => {
+    const idValidation = validateReviewId(req.params.id);
+    if (!idValidation.success) {
+      return res.status(400).json({ errors: idValidation.errors });
+    }
+
+    const bodyValidation = validateResolveReviewBody(req.body);
+    if (!bodyValidation.success) {
+      return res.status(400).json({ errors: bodyValidation.errors });
+    }
+
+    try {
+      const result = await resolveReview(
+        getDb(),
+        idValidation.data,
+        bodyValidation.data,
+        req.user.userId
+      );
+      return res.status(200).json(result);
+    } catch (error) {
+      if (error.status) {
+        return res.status(error.status).json({ errors: error.errors });
+      }
       return next(error);
     }
   });
