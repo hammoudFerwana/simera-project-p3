@@ -1,4 +1,3 @@
-
 const REVIEW_REASONS = Object.freeze([
   'conflict',
   'intra_source_conflict',
@@ -16,10 +15,7 @@ const CONFLICT_REASONS = Object.freeze([
   'item_match_uncertain'
 ]);
 
-const REVIEW_TARGET_TYPES = Object.freeze([
-  'conflict',
-  'unknown_skill'
-]);
+const REVIEW_TARGET_TYPES = Object.freeze(['conflict', 'unknown_skill']);
 
 const REVIEW_ITEM_TYPES = Object.freeze([
   'candidate_profile',
@@ -53,12 +49,7 @@ function createReviewItem(data) {
     throw new TypeError('Review item data must be an object.');
   }
 
-  const {
-    targetType,
-    candidateId,
-    reviewReason,
-    itemId
-  } = data;
+  const { targetType, candidateId, reviewReason, itemId } = data;
 
   if (!REVIEW_TARGET_TYPES.includes(targetType)) {
     throw new TypeError('Invalid review target type.');
@@ -74,9 +65,7 @@ function createReviewItem(data) {
 
   if (targetType === 'unknown_skill') {
     if (!Number.isInteger(itemId) || itemId <= 0) {
-        throw new TypeError(
-            'Unknown skill itemId must be a positive integer.'
-        );
+      throw new TypeError('Unknown skill itemId must be a positive integer.');
     }
   } else if (
     (typeof itemId !== 'string' && typeof itemId !== 'number') ||
@@ -140,15 +129,27 @@ function createReviewItem(data) {
 
     validateConfidence(option.confidence);
 
-    if (typeof option.evidence !== 'string' || !option.evidence.trim()) {
-      throw new TypeError('Each conflict option requires evidence.');
+    const isFromStored = Boolean(option.fromStored);
+    if (!isFromStored) {
+      if (typeof option.evidence !== 'string' || !option.evidence.trim()) {
+        throw new TypeError('Each conflict option requires evidence.');
+      }
+    } else if (option.evidence !== null && option.evidence !== undefined) {
+      if (typeof option.evidence !== 'string' || !option.evidence.trim()) {
+        throw new TypeError(
+          'Evidence, when provided, must be a non-empty string.'
+        );
+      }
     }
 
     return {
       value: option.value,
       sourceFileId: option.sourceFileId ?? null,
       confidence: option.confidence ?? null,
-      evidence: option.evidence.trim()
+      evidence:
+        option.evidence !== null && option.evidence !== undefined
+          ? option.evidence.trim()
+          : null
     };
   });
 
@@ -163,10 +164,114 @@ function createReviewItem(data) {
   };
 }
 
+async function saveReviewItems(client, reviewItems) {
+  if (!client || typeof client.query !== 'function') {
+    throw new TypeError('A database client is required.');
+  }
+
+  if (!Array.isArray(reviewItems) || reviewItems.length === 0) {
+    return 0;
+  }
+
+  let newConflictsCount = 0;
+
+  for (const reviewItem of reviewItems) {
+    if (!reviewItem || reviewItem.targetType !== 'conflict') {
+      continue;
+    }
+
+    const existingConflictResult = await client.query(
+      `SELECT id
+       FROM conflicts
+       WHERE candidate_id = $1
+         AND item_type = $2
+         AND item_id = $3
+         AND field_name = $4
+         AND status = 'pending'
+       ORDER BY id
+       LIMIT 1
+       FOR UPDATE`,
+      [
+        reviewItem.candidateId,
+        reviewItem.itemType,
+        reviewItem.itemId,
+        reviewItem.fieldName
+      ]
+    );
+
+    let conflictId;
+    const existingConflict = existingConflictResult.rows[0];
+
+    if (existingConflict) {
+      conflictId = existingConflict.id;
+    } else {
+      const conflictResult = await client.query(
+        `INSERT INTO conflicts (
+           candidate_id,
+           item_type,
+           item_id,
+           field_name,
+           status
+         )
+         VALUES ($1, $2, $3, $4, 'pending')
+         RETURNING id`,
+        [
+          reviewItem.candidateId,
+          reviewItem.itemType,
+          reviewItem.itemId,
+          reviewItem.fieldName
+        ]
+      );
+
+      conflictId = conflictResult.rows[0].id;
+
+      await client.query(
+        `INSERT INTO human_reviews (
+           candidate_id,
+           review_target_type,
+           item_id,
+           review_reason,
+           review_status,
+           created_at
+         )
+         VALUES ($1, 'conflict', $2, $3, 'pending', CURRENT_TIMESTAMP)`,
+        [reviewItem.candidateId, conflictId, reviewItem.reviewReason]
+      );
+
+      newConflictsCount += 1;
+    }
+
+    if (Array.isArray(reviewItem.options)) {
+      for (const option of reviewItem.options) {
+        await client.query(
+          `INSERT INTO conflict_options (
+             conflict_id,
+             value,
+             source_file_id,
+             confidence,
+             evidence
+           )
+           VALUES ($1, $2, $3, $4, $5)`,
+          [
+            conflictId,
+            JSON.stringify(option.value),
+            option.sourceFileId ?? null,
+            option.confidence ?? null,
+            option.evidence ?? null
+          ]
+        );
+      }
+    }
+  }
+
+  return newConflictsCount;
+}
+
 module.exports = {
   REVIEW_REASONS,
   CONFLICT_REASONS,
   REVIEW_TARGET_TYPES,
   REVIEW_ITEM_TYPES,
-  createReviewItem
+  createReviewItem,
+  saveReviewItems
 };
