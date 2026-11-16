@@ -896,6 +896,246 @@ Returns the complete chronological change history for a candidate profile, order
     - Invalid parameters throw `TypeError`.
 - `getAdminIdForUser(client, userId)`: Resolves an administrator ID (`admins.id`) for a given user ID (`users.id`), returning the integer ID or `null`.
 
+### Unknown skills review (US-19)
+
+Unknown skills detected during candidate CV or profile extraction that could not be linked to the canonical skills catalog (US-13) are stored in `unknown_skills` with status `pending`. Administrators can review these unknown skills by linking them to an existing canonical skill, adding them as a new canonical skill, or rejecting them.
+
+#### `GET /api/admin/unknown-skills`
+
+Returns a paginated list of unknown skills with optional filtering by status and candidate ID, ordered newest first (`created_at DESC, id DESC`).
+
+**Authentication:** Requires a valid `access_token` cookie and an `admin` role.
+
+**Request:**
+
+- Query parameters:
+  - `status`: Optional filter (`pending`, `accepted`, `rejected`). Defaults to `pending`.
+  - `candidateId`: Optional candidate profile ID filter (positive integer).
+  - `page`: Optional page number (positive integer, default `1`).
+  - `pageSize`: Optional page size (positive integer `1` to `100`, default `20`).
+
+**Success response (`200`):**
+
+```json
+{
+  "items": [
+    {
+      "id": 1,
+      "skillName": "Nodejs v18",
+      "status": "pending",
+      "confidence": 0.85,
+      "evidence": "Extracted from technical experience",
+      "createdAt": "2026-11-16T10:00:00.000Z",
+      "resolvedAt": null,
+      "resolvedSkill": null,
+      "candidate": {
+        "id": 10,
+        "firstName": "Jane",
+        "lastName": "Doe",
+        "email": "jane@example.com"
+      },
+      "sourceFile": {
+        "id": 5,
+        "sourceType": "cv",
+        "originalFilename": "resume.pdf",
+        "uploadedAt": "2026-11-16T09:30:00.000Z"
+      }
+    }
+  ],
+  "page": 1,
+  "pageSize": 20,
+  "total": 1
+}
+```
+
+**Error responses:**
+
+| Status | When                                                                  | Body                                                                         |
+| ------ | --------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `400`  | Invalid query parameter (`status`, `candidateId`, `page`, `pageSize`) | `{"errors":{"status":"Status must be one of: pending, accepted, rejected"}}` |
+| `401`  | Not logged in or invalid/expired token                                | `{"errors":{"auth":"Log in to continue"}}`                                   |
+| `403`  | User does not have admin role                                         | `{"errors":{"auth":"You do not have access to this resource"}}`              |
+| `500`  | Unexpected server error                                               | `{"errors":{"server":"Something went wrong"}}`                               |
+
+#### `GET /api/admin/unknown-skills/:id`
+
+Returns the detailed record of a single unknown skill.
+
+**Authentication:** Requires a valid `access_token` cookie and an `admin` role.
+
+**Request:**
+
+- Path parameters:
+  - `id`: Positive integer (unknown skill ID).
+
+**Success response (`200`):**
+
+```json
+{
+  "id": 1,
+  "skillName": "Nodejs v18",
+  "status": "pending",
+  "confidence": 0.85,
+  "evidence": "Extracted from technical experience",
+  "createdAt": "2026-11-16T10:00:00.000Z",
+  "resolvedAt": null,
+  "resolvedSkill": null,
+  "candidate": {
+    "id": 10,
+    "firstName": "Jane",
+    "lastName": "Doe",
+    "email": "jane@example.com"
+  },
+  "sourceFile": {
+    "id": 5,
+    "sourceType": "cv",
+    "originalFilename": "resume.pdf",
+    "uploadedAt": "2026-11-16T09:30:00.000Z"
+  }
+}
+```
+
+**Error responses:**
+
+| Status | When                                       | Body                                                                          |
+| ------ | ------------------------------------------ | ----------------------------------------------------------------------------- |
+| `400`  | Unknown skill ID is not a positive integer | `{"errors":{"unknownSkillId":"Unknown skill id must be a positive integer"}}` |
+| `401`  | Not logged in or invalid/expired token     | `{"errors":{"auth":"Log in to continue"}}`                                    |
+| `403`  | User does not have admin role              | `{"errors":{"auth":"You do not have access to this resource"}}`               |
+| `404`  | Unknown skill not found                    | `{"errors":{"unknownSkillId":"Unknown skill not found"}}`                     |
+| `500`  | Unexpected server error                    | `{"errors":{"server":"Something went wrong"}}`                                |
+
+#### `GET /api/admin/skills/search`
+
+Searches canonical skills using fuzzy matching (Fuse.js) against `skills.canonical_name`.
+
+**Authentication:** Requires a valid `access_token` cookie and an `admin` role.
+
+**Request:**
+
+- Query parameters:
+  - `q`: Search query string (required, trimmed length 1 to 100 characters).
+
+**Success response (`200`):**
+
+```json
+{
+  "items": [
+    {
+      "id": 2,
+      "canonicalName": "Node.js",
+      "similarity": 0.88
+    }
+  ]
+}
+```
+
+Returns up to 20 results sorted by similarity in descending order.
+
+**Error responses:**
+
+| Status | When                                                         | Body                                                                   |
+| ------ | ------------------------------------------------------------ | ---------------------------------------------------------------------- |
+| `400`  | Missing or invalid `q` parameter (empty or > 100 characters) | `{"errors":{"q":"Search query must be between 1 and 100 characters"}}` |
+| `401`  | Not logged in or invalid/expired token                       | `{"errors":{"auth":"Log in to continue"}}`                             |
+| `403`  | User does not have admin role                                | `{"errors":{"auth":"You do not have access to this resource"}}`        |
+| `500`  | Unexpected server error                                      | `{"errors":{"server":"Something went wrong"}}`                         |
+
+#### `POST /api/admin/unknown-skills/:id/resolve`
+
+Resolves an unknown skill by linking it to an existing canonical skill, adding it as a new canonical skill, or rejecting it.
+
+**Authentication:** Requires a valid `access_token` cookie and an `admin` role.
+
+**Request:**
+
+- Path parameters:
+  - `id`: Positive integer (unknown skill ID).
+- Request body:
+  ```json
+  {
+    "action": "link",
+    "skillId": 2,
+    "confidence": 0.9,
+    "reason": "Canonical version matches"
+  }
+  ```
+  - `action`: Required string (`link`, `add`, `reject`).
+  - `skillId`: Positive integer (required for `action = 'link'`).
+  - `canonicalName`: String 1 to 500 characters after trim (required for `action = 'add'`).
+  - `confidence`: Number between `0` and `1` (required).
+  - `reason`: Optional human justification up to 1000 characters.
+
+**Success response (`200`):**
+
+```json
+{
+  "unknownSkill": {
+    "id": 1,
+    "skillName": "Nodejs v18",
+    "status": "accepted",
+    "confidence": 0.85,
+    "evidence": "Extracted from technical experience",
+    "createdAt": "2026-11-16T10:00:00.000Z",
+    "resolvedAt": "2026-11-16T10:15:00.000Z",
+    "resolvedSkill": {
+      "id": 2,
+      "canonicalName": "Node.js"
+    },
+    "candidate": {
+      "id": 10,
+      "firstName": "Jane",
+      "lastName": "Doe",
+      "email": "jane@example.com"
+    },
+    "sourceFile": {
+      "id": 5,
+      "sourceType": "cv",
+      "originalFilename": "resume.pdf",
+      "uploadedAt": "2026-11-16T09:30:00.000Z"
+    }
+  },
+  "candidateSkillId": 14,
+  "created": true
+}
+```
+
+**Resolution transaction rules (D2):**
+
+1. **Transaction & Row Lock**: Runs in a single transaction on one dedicated client, acquiring an exclusive lock (`SELECT ... FOR UPDATE`) on the `unknown_skills` row.
+2. **Status check**: If the row does not exist, returns `404`. If `status != 'pending'`, returns `409` (`{"errors":{"unknownSkillId":"Unknown skill already resolved"}}`).
+3. **Link action**: Verifies `skillId` exists in `skills`; returns `400` (`{"errors":{"skillId":"Skill not found"}}`) if absent.
+4. **Add action**: Performs a case-insensitive check against `skills.canonical_name`. If already present, returns `409` (`{"errors":{"canonicalName":"Skill already exists, link it instead"},"existingSkillId":<id>}`). Otherwise, inserts the canonical name into `skills`.
+5. **Candidate skills association (`link` & `add`)**:
+   - Inserts `candidate_skills (candidate_id, skill_id, created_at) ... ON CONFLICT (candidate_id, skill_id) DO NOTHING RETURNING id`.
+   - If no row returned (candidate already possessed the skill), reads existing row ID (`created = false`).
+   - Only when a new candidate skill was created (`created = true`):
+     - Upserts `data_provenance` (`item_type = 'candidate_skills'`, `item_id = candidateSkillId`, `field_name = 'skill_id'`, `resolution_method = 'human_reviewed'`, `approved_at = NOW()`). No `data_provenance_sources` row is created.
+     - Records human change via `recordHumanChange(client, { candidateId, itemType: 'candidate_skills', itemId: candidateSkillId, fieldName: 'skill_id', previousValue: null, newValue: targetSkillId, changedBy: adminId, reason })`.
+   - Updates `unknown_skills` with `status = 'accepted'`, `resolved_skill_id = targetSkillId`, and `resolved_at = NOW()`.
+6. **Reject action**:
+   - Updates `unknown_skills` with `status = 'rejected'` and `resolved_at = NOW()`. `resolved_skill_id` remains `null`.
+   - Leaves candidate skills untouched; creates no candidate skills, no provenance, and no audit log.
+7. **Human review completion**:
+   - Queries `human_reviews` for an existing row (`review_target_type = 'unknown_skill'`, `item_id = unknown_skills.id`, `review_status IN ('pending', 'in_review')`).
+   - If present: updates to `review_status = 'completed'`, setting `admin_id`, `reviewed_at = NOW()`, `review_result` (`linked:<id>`, `added:<id>`, or `rejected`), and `confidence`.
+   - If none exists (e.g. US-17 pending): inserts a completed `human_reviews` record.
+
+**Error responses:**
+
+| Status | When                                                         | Body                                                                                          |
+| ------ | ------------------------------------------------------------ | --------------------------------------------------------------------------------------------- |
+| `400`  | Missing or invalid fields in body or path                    | `{"errors":{"<field>":"<message>"}}`                                                          |
+| `400`  | Confidence missing                                           | `{"errors":{"confidence":"Confidence is required"}}`                                          |
+| `400`  | Confidence outside 0..1                                      | `{"errors":{"confidence":"Confidence must be between 0 and 1"}}`                              |
+| `400`  | `link` action with non-existent `skillId`                    | `{"errors":{"skillId":"Skill not found"}}`                                                    |
+| `401`  | Not logged in or invalid/expired token                       | `{"errors":{"auth":"Log in to continue"}}`                                                    |
+| `403`  | User does not have admin role                                | `{"errors":{"auth":"You do not have access to this resource"}}`                               |
+| `404`  | Unknown skill not found                                      | `{"errors":{"unknownSkillId":"Unknown skill not found"}}`                                     |
+| `409`  | Unknown skill already resolved                               | `{"errors":{"unknownSkillId":"Unknown skill already resolved"}}`                              |
+| `409`  | `add` action with existing canonical name (case-insensitive) | `{"errors":{"canonicalName":"Skill already exists, link it instead"},"existingSkillId":<id>}` |
+| `500`  | Unexpected server error                                      | `{"errors":{"server":"Something went wrong"}}`                                                |
+
 ## Testing and Code Quality
 
 - **Run Tests**:
