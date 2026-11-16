@@ -15,7 +15,7 @@ const useLogin = () => {
       queryClient.setQueryData(["currentUser"], user);
 
       if (user.role === "admin") {
-        navigate("/admin", { replace: true });
+        navigate("/admin/candidates", { replace: true });
       } else if (user.role === "candidate") {
         navigate("/candidate", { replace: true });
       }

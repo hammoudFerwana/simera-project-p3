@@ -16,9 +16,8 @@ const user = data;
   }
 
   if (!allowedRoles.includes(user.role)) {
-    const redirectPath =
-      user.role === "admin" ? "/admin" : "/candidate";
-
+   const redirectPath =
+  user.role === "admin" ? "/admin/candidates" : "/candidate";
     return <Navigate to={redirectPath} replace />;
   }
 
