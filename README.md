@@ -710,7 +710,7 @@ Returns a candidate's complete profile, section items with per-field provenance 
     "work_experience": [
       {
         "id": 1,
-        "months": null,
+        "months": 24,
         "fields": {
           "job_title": { "value": "Software Engineer", "...": "..." },
           "company_name": { "...": "..." }
@@ -761,7 +761,9 @@ Returns a candidate's complete profile, section items with per-field provenance 
       }
     ]
   },
-  "experience": null,
+  "experience": {
+    "totalMonths": 36
+  },
   "files": [
     {
       "id": 5,
@@ -777,6 +779,12 @@ Returns a candidate's complete profile, section items with per-field provenance 
   ]
 }
 ```
+
+**Experience months:**
+
+- `experience.totalMonths`: total months of work experience, with overlapping jobs merged. `0` when the candidate has no countable job.
+- `work_experience[].months`: months of that job, or `null` when its dates cannot be counted (for example no start date).
+- Both are calculated on read with `calculateExperienceMonths` (US-14) and never stored. A year-only start counts from January and a year-only end to December. An ongoing job counts until the current month.
 
 **FieldView shape:**
 

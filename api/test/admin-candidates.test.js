@@ -726,4 +726,56 @@ describe('Admin Candidates API (US-12)', () => {
     expect(skillItem.fields.proficiency_level.value).toBe('advanced');
     expect(skillItem.fields.months_of_experience.value).toBe(36);
   });
+
+  it('experience months: calculated on read from work experience, never stored', async () => {
+    const jobs = [
+      ['Backend Developer', 'Acme', '2020-01', '2021-12'],
+      ['Backend Developer', 'Beta', '2021-01', '2022-12']
+    ];
+    const jobIds = [];
+    for (const [title, company, start, end] of jobs) {
+      const weRes = await pool.query(
+        `INSERT INTO work_experience (
+           candidate_id, job_title, company_name, start_date, end_date,
+           is_current, deduplication_key
+         )
+         VALUES ($1, $2, $3, $4, $5, false, $6)
+         RETURNING id`,
+        [cand3.candidateId, title, company, start, end, `exp-${nextId()}`]
+      );
+      jobIds.push(weRes.rows[0].id);
+      created.workExperienceIds.push(weRes.rows[0].id);
+    }
+    const countBefore = await pool.query(
+      'SELECT count(*)::int AS n FROM work_experience WHERE candidate_id = $1',
+      [cand3.candidateId]
+    );
+
+    const res = await request(app)
+      .get(`/api/admin/candidates/${cand3.candidateId}`)
+      .set('Cookie', adminCookie);
+
+    expect(res.status).toBe(200);
+    expect(res.body.experience).toEqual({ totalMonths: 36 });
+    expect(
+      res.body.sections.work_experience.map((item) => [item.id, item.months])
+    ).toEqual([
+      [jobIds[0], 24],
+      [jobIds[1], 24]
+    ]);
+    const countAfter = await pool.query(
+      'SELECT count(*)::int AS n FROM work_experience WHERE candidate_id = $1',
+      [cand3.candidateId]
+    );
+    expect(countAfter.rows[0].n).toBe(countBefore.rows[0].n);
+  });
+
+  it('experience months: a candidate with no work experience has totalMonths 0', async () => {
+    const res = await request(app)
+      .get(`/api/admin/candidates/${cand2.candidateId}`)
+      .set('Cookie', adminCookie);
+
+    expect(res.status).toBe(200);
+    expect(res.body.experience).toEqual({ totalMonths: 0 });
+  });
 });
