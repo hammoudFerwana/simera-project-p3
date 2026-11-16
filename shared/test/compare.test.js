@@ -6,6 +6,7 @@ const {
   normalizeUrl
 } = require('../src/comparison/normalize');
 const { compareWithStored } = require('../src/comparison/compare');
+const { withSkillNames } = require('../src/comparison/skills');
 
 const NOW = new Date('2026-11-14T00:00:00Z');
 
@@ -686,5 +687,80 @@ describe('fields and sections', () => {
       ]
     };
     expect(compare(stored, extraction)).toEqual(compare(stored, extraction));
+  });
+
+  describe('withSkillNames', () => {
+    it('sets canonical_name for matched, null for unknown/skipped/missing, and does not mutate input', () => {
+      const extraction = {
+        candidate: { city: wrap('Amman') },
+        skills: [
+          { name: wrap('ReactJS'), proficiency_level: wrap('intermediate') },
+          { name: wrap('GoLang'), proficiency_level: wrap('basic') },
+          { name: wrap(''), proficiency_level: wrap(null) },
+          { name: wrap('Rust'), proficiency_level: wrap('advanced') }
+        ]
+      };
+      const skillResolutions = [
+        { index: 0, status: 'matched', canonicalName: 'React', skillId: 10 },
+        { index: 1, status: 'unknown', canonicalName: null, skillId: null },
+        { index: 2, status: 'skipped', canonicalName: null, skillId: null }
+      ];
+
+      const frozenExtraction = JSON.parse(JSON.stringify(extraction));
+      const result = withSkillNames(extraction, skillResolutions);
+
+      expect(result.skills[0].canonical_name).toBe('React');
+      expect(result.skills[1].canonical_name).toBeNull();
+      expect(result.skills[2].canonical_name).toBeNull();
+      expect(result.skills[3].canonical_name).toBeNull();
+
+      expect(extraction).toEqual(frozenExtraction);
+      expect(extraction.skills[0].canonical_name).toBeUndefined();
+    });
+
+    it('end to end with withSkillNames: stored skill "React" and new raw "ReactJS" resolved to "React" produces no unknownSkills, and an unknown resolution produces one unknownSkills entry', () => {
+      const stored = {
+        skills: [
+          {
+            id: 1,
+            canonical_name: 'React',
+            proficiency_level: 'intermediate',
+            months_of_experience: null
+          }
+        ]
+      };
+      const extraction = {
+        skills: [
+          {
+            name: wrap('ReactJS'),
+            proficiency_level: wrap('intermediate'),
+            stated_duration: wrap(null)
+          },
+          {
+            name: wrap('obscure-skill'),
+            proficiency_level: wrap(null),
+            stated_duration: wrap(null)
+          }
+        ]
+      };
+      const skillResolutions = [
+        { index: 0, status: 'matched', canonicalName: 'React', skillId: 1 },
+        { index: 1, status: 'unknown', canonicalName: null, skillId: null }
+      ];
+
+      const extractionWithSkills = withSkillNames(extraction, skillResolutions);
+      const diff = compareWithStored(stored, extractionWithSkills);
+
+      expect(diff.unknownSkills).toEqual([
+        {
+          section: 'skills',
+          newIndex: 1,
+          newItem: extractionWithSkills.skills[1]
+        }
+      ]);
+      expect(diff.added).toEqual([]);
+      expect(diff.differences).toEqual([]);
+      expect(entries(diff, 'unchanged', { section: 'skills' })).toHaveLength(1);
+    });
   });
 });
