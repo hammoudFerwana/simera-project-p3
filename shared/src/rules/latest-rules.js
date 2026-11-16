@@ -176,6 +176,19 @@ function decideLatest(diff, options = {}) {
       continue;
     }
 
+    // Skip redundant is_current difference if B1 already updates is_current for this job.
+    // Runs before C6: B1 sets is_current to false, so this difference must not go to review.
+    if (
+      section === 'work_experience' &&
+      field === 'is_current' &&
+      storedValue === true &&
+      newWrapper?.value === false &&
+      itemId != null &&
+      b1ItemIds.has(itemId)
+    ) {
+      continue;
+    }
+
     // D7 rule 2: C6 - low confidence below threshold
     const confidence = newWrapper?.confidence;
     const isBelowThreshold =
@@ -196,18 +209,6 @@ function decideLatest(diff, options = {}) {
         stored: storedValue,
         new: newWrapper
       });
-      continue;
-    }
-
-    // Skip redundant is_current difference if B1 already updates is_current for this job
-    if (
-      section === 'work_experience' &&
-      field === 'is_current' &&
-      storedValue === true &&
-      newWrapper?.value === false &&
-      itemId != null &&
-      b1ItemIds.has(itemId)
-    ) {
       continue;
     }
 

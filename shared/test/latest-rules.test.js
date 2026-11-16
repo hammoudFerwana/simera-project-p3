@@ -182,6 +182,50 @@ describe('latest-rules (decideLatest)', () => {
     });
   });
 
+  it('skips a low-confidence is_current difference when B1 applies on the same job', () => {
+    const diff = {
+      differences: [
+        {
+          section: 'work_experience',
+          storedIndex: 0,
+          storedId: '101',
+          newIndex: 0,
+          field: 'end_date',
+          stored: null,
+          new: wrap('2024-03')
+        },
+        {
+          section: 'work_experience',
+          storedIndex: 0,
+          storedId: '101',
+          newIndex: 0,
+          field: 'is_current',
+          stored: true,
+          new: wrap(false, 0.2)
+        }
+      ]
+    };
+
+    const result = decideLatest(diff, { threshold: 0.5 });
+
+    expect(result).toEqual({
+      automatic: [
+        {
+          rule: 'B1',
+          section: 'work_experience',
+          itemType: 'work_experience',
+          itemId: '101',
+          field: 'end_date',
+          previous: null,
+          next: wrap('2024-03'),
+          extraUpdates: { is_current: false }
+        }
+      ],
+      reviews: [],
+      addOptions: []
+    });
+  });
+
   it('AC6: reviews C2 when a past job start date differs', () => {
     const diff = {
       differences: [
