@@ -95,6 +95,8 @@ const createStoreStep =
     const storageResult = await writeExtraction({
       userId: ctx.userId,
       jobId: ctx.jobId,
+      extraction: ctx.extraction,
+      skillResolutions: ctx.skillResolutions || [],
       mappedData: {
         ...mappedData,
         profile: safeProfile

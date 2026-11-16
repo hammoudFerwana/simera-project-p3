@@ -710,17 +710,50 @@ async function saveLinks(client, candidateId, linkItems) {
   return savedItems;
 }
 
-async function saveSkills(client, { candidateId, fileId, jobId, skills }) {
+async function saveSkills(
+  client,
+  { candidateId, fileId, jobId, skills, confidenceThreshold }
+) {
   const savedSkills = {
-    matched: [],
-    unknown: []
-  };
+  matched: [],
+  unknown: [],
+  reviewCandidates: []
+};
   const savedProvenance = [];
 
   for (const item of skills.matched) {
     const { skillId, fields } = item;
-    const proficiencyLevel = fields.proficiency_level?.value ?? null;
-    const monthsOfExperience = fields.months_of_experience?.value ?? null;
+
+const safeFields = {};
+const lowConfidenceFields = [];
+
+for (const [fieldName, wrapper] of Object.entries(fields ?? {})) {
+  if (wrapper?.value === null || wrapper?.value === undefined) {
+    continue;
+  }
+
+  if (
+    typeof wrapper.confidence === 'number' &&
+    wrapper.confidence < confidenceThreshold
+  ) {
+    if (typeof wrapper.evidence === 'string' && wrapper.evidence.trim()) {
+      lowConfidenceFields.push({
+        fieldName,
+        value: wrapper.value,
+        confidence: wrapper.confidence,
+        evidence: wrapper.evidence
+      });
+    }
+
+    continue;
+  }
+
+  safeFields[fieldName] = wrapper;
+}
+
+const proficiencyLevel = safeFields.proficiency_level?.value ?? null;
+const monthsOfExperience =
+  safeFields.months_of_experience?.value ?? null;
 
     const result = await client.query(
       `INSERT INTO candidate_skills (
@@ -749,12 +782,23 @@ async function saveSkills(client, { candidateId, fileId, jobId, skills }) {
       itemType: 'candidate_skills',
       itemId: savedRow.id,
       jobId,
-      fields,
+      fields: safeFields,
       storedRow: savedRow
     });
 
     savedProvenance.push(...itemProvenance);
-    savedSkills.matched.push(savedRow);
+savedSkills.matched.push(savedRow);
+
+for (const field of lowConfidenceFields) {
+  savedSkills.reviewCandidates.push({
+    itemType: 'candidate_skills',
+    itemId: savedRow.id,
+    fieldName: field.fieldName,
+    value: field.value,
+    confidence: field.confidence,
+    evidence: field.evidence
+  });
+}
   }
 
   for (const item of skills.unknown) {
@@ -1144,6 +1188,8 @@ function mergeItemsByDeduplicationKey(itemType, items) {
  * @param {number} params.jobId
  * @param {Object} params.mappedData
  * @param {Array} [params.reviewItems]
+ * @param {Object} params.extraction
+ * @param {Array} [params.skillResolutions]
  */
 async function writeExtraction({
   userId,
@@ -1470,6 +1516,20 @@ async function writeExtraction({
     );
     const savedLinks = await saveLinks(client, candidateId, linkItems);
     const savedProvenance = [...savedProfileProvenance];
+    let savedSkills = { matched: [], unknown: [], reviewCandidates: [] };
+
+if (mappedData.skills) {
+  const result = await saveSkills(client, {
+    candidateId,
+    fileId,
+    jobId,
+    skills: mappedData.skills,
+    confidenceThreshold
+  });
+
+  savedSkills = result.savedSkills;
+  savedProvenance.push(...result.savedProvenance);
+}
 
     const allSavedItems = [
       ...savedEducationItems,
@@ -1521,6 +1581,24 @@ async function writeExtraction({
     });
 
     const normalizedReviewItems = [
+      ...savedSkills.reviewCandidates.map((reviewCandidate) =>
+  createReviewItem({
+    targetType: 'conflict',
+    candidateId,
+    reviewReason: 'low_confidence',
+    itemType: reviewCandidate.itemType,
+    itemId: reviewCandidate.itemId,
+    fieldName: reviewCandidate.fieldName,
+    options: [
+      {
+        value: reviewCandidate.value,
+        sourceFileId: fileId,
+        confidence: reviewCandidate.confidence,
+        evidence: reviewCandidate.evidence
+      }
+    ]
+  })
+),
       ...reviewCandidates.map((reviewCandidate) =>
         createReviewItem({
           targetType: 'conflict',
@@ -1674,19 +1752,7 @@ async function writeExtraction({
       savedProvenance.push(...itemProvenance);
     }
 
-    let savedSkills = { matched: [], unknown: [] };
-    if (mappedData.skills) {
-      const { savedSkills: sSkills, savedProvenance: sProvenance } =
-        await saveSkills(client, {
-          candidateId,
-          fileId,
-          jobId,
-          skills: mappedData.skills
-        });
-      savedSkills = sSkills;
-      pendingReviewCount += sSkills.unknown.length;
-      savedProvenance.push(...sProvenance);
-    }
+    pendingReviewCount += savedSkills.unknown.length;
 
     await client.query('COMMIT');
     transactionStarted = false;

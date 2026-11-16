@@ -48,8 +48,10 @@ describe('US-10 store step integration', () => {
     expect(writeExtraction).toHaveBeenCalledWith({
   userId: 5,
   jobId: 10,
+  extraction,
   mappedData,
   reviewItems: [],
+  skillResolutions: [],
   confidenceThreshold: 0.5
 });
     expect(result.completedSteps).toContain('store');
@@ -137,31 +139,33 @@ describe('US-10 store step integration', () => {
   const result = await runSteps(ctx, [storeStep]);
 
   expect(writeExtraction).toHaveBeenCalledWith({
-    userId: 5,
-    jobId: 10,
-    mappedData: {
-      profile: {
-        last_name: extraction.candidate.last_name
-      },
-      items: {}
+  userId: 5,
+  jobId: 10,
+  extraction,
+  mappedData: {
+    profile: {
+      last_name: extraction.candidate.last_name
     },
-    reviewItems: [
-      {
-        targetType: 'conflict',
-        reviewReason: 'low_confidence',
-        itemType: 'candidate_profile',
-        fieldName: 'first_name',
-        options: [
-          {
-            value: 'John',
-            confidence: 0.4,
-            evidence: 'Name found in CV'
-          }
-        ]
-      }
-    ],
-    confidenceThreshold: 0.7
-  });
+    items: {}
+  },
+  reviewItems: [
+    {
+      targetType: 'conflict',
+      reviewReason: 'low_confidence',
+      itemType: 'candidate_profile',
+      fieldName: 'first_name',
+      options: [
+        {
+          value: 'John',
+          confidence: 0.4,
+          evidence: 'Name found in CV'
+        }
+      ]
+    }
+  ],
+  skillResolutions: [],
+  confidenceThreshold: 0.7
+});
 
   expect(result.pendingReviewCount).toBe(1);
 });
@@ -217,26 +221,28 @@ describe('US-10 store step integration', () => {
   const result = await runSteps(ctx, [createSteps()[6]]);
 
   expect(writeExtraction).toHaveBeenCalledWith({
-    userId: 5,
-    jobId: 10,
-    mappedData,
-    reviewItems: [
-      {
-        targetType: 'conflict',
-        reviewReason: 'validation_failure',
-        itemType: 'candidate_profile',
-        fieldName: 'phone',
-        options: [
-          {
-            value: '+970599123456',
-            confidence: 0.9,
-            evidence: 'Phone: +970599123456'
-          }
-        ]
-      }
-    ],
-    confidenceThreshold: 0.5
-  });
+  userId: 5,
+  jobId: 10,
+  extraction,
+  mappedData,
+  reviewItems: [
+    {
+      targetType: 'conflict',
+      reviewReason: 'validation_failure',
+      itemType: 'candidate_profile',
+      fieldName: 'phone',
+      options: [
+        {
+          value: '+970599123456',
+          confidence: 0.9,
+          evidence: 'Phone: +970599123456'
+        }
+      ]
+    }
+  ],
+  skillResolutions: [],
+  confidenceThreshold: 0.5
+});
 
   expect(result.pendingReviewCount).toBe(1);
 });
