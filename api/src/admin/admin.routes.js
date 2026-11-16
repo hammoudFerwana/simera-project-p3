@@ -5,6 +5,7 @@ const {
   validateCandidateId
 } = require('./admin.validation');
 const { listCandidates, getCandidateProfile } = require('./candidates.service');
+const { getCandidateHistory } = require('./history.service');
 
 /**
  * Creates the admin router mounted at /api/admin.
@@ -40,6 +41,25 @@ function createAdminRouter({ getDb }) {
 
     try {
       const result = await getCandidateProfile(getDb(), validation.data);
+      if (!result) {
+        return res
+          .status(404)
+          .json({ errors: { candidateId: 'Candidate not found' } });
+      }
+      return res.status(200).json(result);
+    } catch (error) {
+      return next(error);
+    }
+  });
+
+  router.get('/candidates/:id/history', async (req, res, next) => {
+    const validation = validateCandidateId(req.params.id);
+    if (!validation.success) {
+      return res.status(400).json({ errors: validation.errors });
+    }
+
+    try {
+      const result = await getCandidateHistory(getDb(), validation.data);
       if (!result) {
         return res
           .status(404)
