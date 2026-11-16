@@ -1,6 +1,7 @@
 const Fuse = require('fuse.js');
 
 let cachedIndex = null;
+let lastSkillsMeta = null;
 
 function parseMinSimilarity(value) {
   let minSim;
@@ -89,6 +90,15 @@ async function loadSkillIndex(db, { minSimilarity } = {}) {
 
   const result = await db.query('SELECT id, canonical_name FROM skills');
   cachedIndex = createSkillIndex(result.rows, { minSimilarity: minSim });
+
+  let maxId = 0;
+  for (const row of result.rows) {
+    if (row && typeof row.id === 'number' && row.id > maxId) {
+      maxId = row.id;
+    }
+  }
+  lastSkillsMeta = { n: result.rows.length, max_id: maxId };
+
   return cachedIndex;
 }
 
@@ -100,9 +110,36 @@ async function rebuildSkillIndex(db, options = {}) {
   return loadSkillIndex(db, options);
 }
 
+async function getFreshSkillIndex(db, options = {}) {
+  if (!db || typeof db.query !== 'function') {
+    throw new Error('Database pool or client is required to load skill index');
+  }
+
+  const { rows } = await db.query(
+    'SELECT COUNT(*)::int AS n, COALESCE(MAX(id), 0)::int AS max_id FROM skills'
+  );
+
+  const row = rows && rows[0] ? rows[0] : { n: 0, max_id: 0 };
+  const n = row.n;
+  const max_id = row.max_id;
+
+  if (
+    !getSkillIndex() ||
+    !lastSkillsMeta ||
+    lastSkillsMeta.n !== n ||
+    lastSkillsMeta.max_id !== max_id
+  ) {
+    await loadSkillIndex(db, options);
+    lastSkillsMeta = { n, max_id };
+  }
+
+  return getSkillIndex();
+}
+
 module.exports = {
   createSkillIndex,
   loadSkillIndex,
   getSkillIndex,
-  rebuildSkillIndex
+  rebuildSkillIndex,
+  getFreshSkillIndex
 };

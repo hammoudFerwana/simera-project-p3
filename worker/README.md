@@ -31,8 +31,8 @@ Steps live in `worker/src/steps/index.js`, in this order:
 3. call the LLM (US-08)
 4. normalize skills (US-13)
 5. validate with code (US-09, US-14)
-6. compare with stored data and apply the latest rules (US-15, US-16, US-17)
-7. store (US-10)
+6. compare with stored data (US-15)
+7. store extraction and merge returning candidate data (US-10, US-21)
 
 Recording the completion is done by the worker after the last step.
 
@@ -99,6 +99,27 @@ Checks that emails found in the file match the candidate's account login email (
 - Pure function `decideEmail(fileEmails, loginEmail)` permits continuation if the file contains the account email or contains no emails at all; otherwise reports mismatch.
 - On mismatch, throws `PermanentError('The file contains an email that does not match your account email')`.
 - On continuation, sets `ctx.loginEmail` to the lowercase account email.
+
+### Step 6: Compare with stored data (US-15)
+
+`createCompareStep({ db })` in `worker/src/steps/compare.js` executes after code validation:
+
+- Loads stored profile and items via `loadStoredCandidate(db, ctx.candidateId)`.
+- Resolves extraction skill names with `withSkillNames`.
+- Evaluates `ctx.diff = compareWithStored(storedData, extractionWithSkills)` and sets `ctx.storedData`.
+- Read-only database operation (no writes). Logs counts only.
+
+### Step 7: Store and merge (US-10, US-21)
+
+`createStoreStep({ db, writer = writeExtraction, createReviews })` in `worker/src/steps/store.js`:
+
+- For first-time files (`ctx.storedData === null`): writes mapped extraction directly using `writeExtraction`.
+- For returning candidates (`ctx.storedData !== null`):
+  - Prepares reduced mapped items (only brand new items in `diff.added` with `scope: 'item'`).
+  - Calls `writeExtraction` with a `beforeCommit` hook that executes `applyMerge` within the same transaction.
+  - Applies field fills (A1), precision upgrades (A3) with updated deduplication keys, second sources, and latest-value decisions (Table B).
+  - Passes review items (C rules and uncertain matches) to `createReviews`.
+  - Computes `changedFieldCount` and `pendingReviewCount` on `ctx`, recorded in `processing_jobs` when the job completes.
 
 ## Add a job from the API (US-04, US-22)
 

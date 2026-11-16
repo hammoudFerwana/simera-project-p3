@@ -1128,12 +1128,14 @@ function mergeItemsByDeduplicationKey(itemType, items) {
  * @param {number} params.jobId
  * @param {Object} params.mappedData
  * @param {Array} [params.reviewItems]
+ * @param {Function} [params.beforeCommit]
  */
 async function writeExtraction({
   userId,
   jobId,
   mappedData,
-  reviewItems = []
+  reviewItems = [],
+  beforeCommit
 }) {
   // Validate input before acquiring a database connection.
   if (!Number.isInteger(userId) || userId <= 0) {
@@ -1492,6 +1494,10 @@ async function writeExtraction({
         });
       savedSkills = sSkills;
       savedProvenance.push(...sProvenance);
+    }
+
+    if (typeof beforeCommit === 'function') {
+      await beforeCommit(client, { candidateId, fileId, jobId });
     }
 
     await client.query('COMMIT');

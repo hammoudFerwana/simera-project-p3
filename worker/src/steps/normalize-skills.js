@@ -1,6 +1,6 @@
 const { TemporaryError } = require('shared/src/errors');
 const { createLlmClientFromEnv } = require('shared/src/llm/client');
-const { getSkillIndex, loadSkillIndex } = require('../skills/skill-index');
+const { getFreshSkillIndex } = require('../skills/skill-index');
 const {
   buildSkillSelectionMessages
 } = require('../llm/skill-selection-prompt');
@@ -38,9 +38,7 @@ function createNormalizeSkillsStep({
       return ctx;
     }
 
-    const index = getIndex
-      ? await getIndex()
-      : getSkillIndex() || (await loadSkillIndex(db));
+    const index = getIndex ? await getIndex() : await getFreshSkillIndex(db);
 
     if (!index || index.size === 0) {
       log('Warning: Skill index is empty; all skills marked as unknown');
