@@ -68,6 +68,7 @@ describe('Permissions Matrix & Cross-Candidate Isolation (US-24)', () => {
 
   let fileA;
   let fileB;
+  let unknownSkillA;
 
   const fakeMailer = {
     sent: [],
@@ -226,6 +227,17 @@ describe('Permissions Matrix & Cross-Candidate Isolation (US-24)', () => {
     fileB = { id: fileBRes.rows[0].id, filename: 'candB-cv.docx' };
     created.fileIds.push(fileB.id);
 
+    // 5. Create a pending unknown skill for Candidate A (US-19 rows)
+    const unknownSkillRes = await pool.query(
+      `INSERT INTO unknown_skills (
+         candidate_id, skill_name, source_file_id, confidence, evidence,
+         status, created_at
+       ) VALUES ($1, $2, $3, 0.8, 'Security test evidence', 'pending', NOW())
+       RETURNING id`,
+      [candidateA.candidateId, `Security Skill ${RUN_ID}`, fileA.id]
+    );
+    unknownSkillA = { id: unknownSkillRes.rows[0].id };
+
     const jobBRes = await pool.query(
       `INSERT INTO processing_jobs (file_id, status, created_at)
        VALUES ($1, 'completed', NOW())
@@ -237,6 +249,16 @@ describe('Permissions Matrix & Cross-Candidate Isolation (US-24)', () => {
 
   afterAll(async () => {
     if (pool) {
+      if (created.profileIds.length > 0) {
+        await pool.query(
+          `DELETE FROM human_reviews WHERE candidate_id = ANY($1::int[])`,
+          [created.profileIds]
+        );
+        await pool.query(
+          `DELETE FROM unknown_skills WHERE candidate_id = ANY($1::int[])`,
+          [created.profileIds]
+        );
+      }
       if (created.jobIds.length > 0) {
         await pool.query(
           `DELETE FROM processing_jobs WHERE id = ANY($1::int[])`,
@@ -284,6 +306,9 @@ describe('Permissions Matrix & Cross-Candidate Isolation (US-24)', () => {
   });
 
   function resolvePath(endpoint) {
+    if (endpoint.path.startsWith('/api/admin/unknown-skills/')) {
+      return endpoint.path.replace(':id', unknownSkillA.id);
+    }
     return endpoint.path
       .replace(':fileId', fileA.id)
       .replace(':id', candidateA.candidateId);
@@ -298,6 +323,10 @@ describe('Permissions Matrix & Cross-Candidate Isolation (US-24)', () => {
 
     if (cookie) {
       req = req.set('Cookie', cookie);
+    }
+
+    if (endpoint.query) {
+      req = req.query(endpoint.query);
     }
 
     if (endpoint.path === '/api/uploads/cv') {

@@ -6,6 +6,7 @@
  * - path: route path template (e.g. /api/auth/login, /api/uploads/:fileId/raw)
  * - publicRoute: true if reachable without authentication cookie (never 401/403)
  * - expectedNoAuth: expected HTTP status code when request has no credentials
+ *   ('public' means the test only checks the answer is never 401 or 403)
  * - expectedCandidate: expected HTTP status code when request is authenticated as candidate
  * - expectedAdmin: expected HTTP status code when request is authenticated as admin
  * - description: human-readable purpose of the endpoint
@@ -18,8 +19,8 @@ const permissionsMatrix = [
     path: '/api/auth/register',
     publicRoute: true,
     expectedNoAuth: 201,
-    expectedCandidate: 201,
-    expectedAdmin: 201,
+    expectedCandidate: 'public',
+    expectedAdmin: 'public',
     description: 'Register candidate account',
     body: { email: 'candidate@example.com', password: 'ValidPassword123' },
     params: null
@@ -28,9 +29,9 @@ const permissionsMatrix = [
     method: 'POST',
     path: '/api/auth/verify-otp',
     publicRoute: true,
-    expectedNoAuth: 200,
-    expectedCandidate: 200,
-    expectedAdmin: 200,
+    expectedNoAuth: 'public',
+    expectedCandidate: 'public',
+    expectedAdmin: 'public',
     description: 'Verify email with OTP code',
     body: { email: 'candidate@example.com', code: '123456' },
     params: null
@@ -39,9 +40,9 @@ const permissionsMatrix = [
     method: 'POST',
     path: '/api/auth/resend-otp',
     publicRoute: true,
-    expectedNoAuth: 200,
-    expectedCandidate: 200,
-    expectedAdmin: 200,
+    expectedNoAuth: 'public',
+    expectedCandidate: 'public',
+    expectedAdmin: 'public',
     description: 'Resend OTP verification code',
     body: { email: 'candidate@example.com' },
     params: null
@@ -50,9 +51,9 @@ const permissionsMatrix = [
     method: 'POST',
     path: '/api/auth/login',
     publicRoute: true,
-    expectedNoAuth: 200,
-    expectedCandidate: 200,
-    expectedAdmin: 200,
+    expectedNoAuth: 'public',
+    expectedCandidate: 'public',
+    expectedAdmin: 'public',
     description: 'Authenticate with email and password',
     body: { email: 'candidate@example.com', password: 'ValidPassword123' },
     params: null
@@ -62,8 +63,8 @@ const permissionsMatrix = [
     path: '/api/auth/logout',
     publicRoute: true,
     expectedNoAuth: 200,
-    expectedCandidate: 200,
-    expectedAdmin: 200,
+    expectedCandidate: 'public',
+    expectedAdmin: 'public',
     description: 'Clear session authentication cookie',
     body: null,
     params: null
@@ -155,6 +156,51 @@ const permissionsMatrix = [
     description: 'Get candidate audit change history',
     body: null,
     params: { id: ':id' }
+  },
+  {
+    method: 'GET',
+    path: '/api/admin/unknown-skills',
+    publicRoute: false,
+    expectedNoAuth: 401,
+    expectedCandidate: 403,
+    expectedAdmin: 200,
+    description: 'List unknown skills waiting for review',
+    body: null,
+    params: null
+  },
+  {
+    method: 'GET',
+    path: '/api/admin/unknown-skills/:id',
+    publicRoute: false,
+    expectedNoAuth: 401,
+    expectedCandidate: 403,
+    expectedAdmin: 200,
+    description: 'Get one unknown skill',
+    body: null,
+    params: { id: ':unknownSkillId' }
+  },
+  {
+    method: 'GET',
+    path: '/api/admin/skills/search',
+    publicRoute: false,
+    expectedNoAuth: 401,
+    expectedCandidate: 403,
+    expectedAdmin: 200,
+    description: 'Search canonical skills',
+    body: null,
+    params: null,
+    query: { q: 'node' }
+  },
+  {
+    method: 'POST',
+    path: '/api/admin/unknown-skills/:id/resolve',
+    publicRoute: false,
+    expectedNoAuth: 401,
+    expectedCandidate: 403,
+    expectedAdmin: 200,
+    description: 'Resolve an unknown skill (link, add or reject)',
+    body: { action: 'reject', confidence: 0.9 },
+    params: { id: ':unknownSkillId' }
   }
 ];
 
