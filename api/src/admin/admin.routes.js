@@ -7,14 +7,16 @@ const {
 const {
   validateListUnknownSkillsQuery,
   validateUnknownSkillId,
-  validateSearchSkillsQuery
+  validateSearchSkillsQuery,
+  validateResolveUnknownSkillBody
 } = require('./unknown-skills.validation');
 const { listCandidates, getCandidateProfile } = require('./candidates.service');
 const { getCandidateHistory } = require('./history.service');
 const {
   listUnknownSkills,
   getUnknownSkillById,
-  searchSkills
+  searchSkills,
+  resolveUnknownSkill
 } = require('./unknown-skills.service');
 
 /**
@@ -124,6 +126,37 @@ function createAdminRouter({ getDb }) {
       const result = await searchSkills(getDb(), validation.data);
       return res.status(200).json(result);
     } catch (error) {
+      return next(error);
+    }
+  });
+
+  router.post('/unknown-skills/:id/resolve', async (req, res, next) => {
+    const idValidation = validateUnknownSkillId(req.params.id);
+    if (!idValidation.success) {
+      return res.status(400).json({ errors: idValidation.errors });
+    }
+
+    const bodyValidation = validateResolveUnknownSkillBody(req.body);
+    if (!bodyValidation.success) {
+      return res.status(400).json({ errors: bodyValidation.errors });
+    }
+
+    try {
+      const result = await resolveUnknownSkill(
+        getDb(),
+        idValidation.data,
+        bodyValidation.data,
+        req.user.userId
+      );
+      return res.status(200).json(result);
+    } catch (error) {
+      if (error.status) {
+        const payload = { errors: error.errors };
+        if (error.existingSkillId !== undefined) {
+          payload.existingSkillId = error.existingSkillId;
+        }
+        return res.status(error.status).json(payload);
+      }
       return next(error);
     }
   });

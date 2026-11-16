@@ -1,6 +1,7 @@
 const { z } = require('zod');
 
 const UNKNOWN_SKILL_STATUSES = ['pending', 'accepted', 'rejected'];
+const RESOLVE_ACTIONS = ['link', 'add', 'reject'];
 
 const listUnknownSkillsQuerySchema = z.object({
   status: z
@@ -154,9 +155,92 @@ function validateSearchSkillsQuery(query = {}) {
   };
 }
 
+/**
+ * Validates body for POST /api/admin/unknown-skills/:id/resolve.
+ *
+ * @param {unknown} body
+ * @returns {{ success: true, data: object } | { success: false, errors: object }}
+ */
+function validateResolveUnknownSkillBody(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return {
+      success: false,
+      errors: { body: 'Invalid request body' }
+    };
+  }
+
+  const errors = {};
+  const { action, skillId, canonicalName, confidence, reason } = body;
+
+  if (!action || !RESOLVE_ACTIONS.includes(action)) {
+    errors.action = `Action must be one of: ${RESOLVE_ACTIONS.join(', ')}`;
+  }
+
+  if (confidence === undefined || confidence === null || confidence === '') {
+    errors.confidence = 'Confidence is required';
+  } else {
+    const num =
+      typeof confidence === 'number'
+        ? confidence
+        : typeof confidence === 'string' && confidence.trim() !== ''
+          ? Number(confidence)
+          : NaN;
+
+    if (Number.isNaN(num) || num < 0 || num > 1) {
+      errors.confidence = 'Confidence must be between 0 and 1';
+    }
+  }
+
+  if (action === 'link') {
+    const isPosInt =
+      (typeof skillId === 'number' &&
+        Number.isInteger(skillId) &&
+        skillId > 0) ||
+      (typeof skillId === 'string' && /^[1-9]\d*$/.test(skillId.trim()));
+    if (!isPosInt) {
+      errors.skillId = 'Skill id is required for link action';
+    }
+  }
+
+  if (action === 'add') {
+    if (
+      canonicalName === undefined ||
+      canonicalName === null ||
+      typeof canonicalName !== 'string' ||
+      canonicalName.trim().length === 0 ||
+      canonicalName.trim().length > 500
+    ) {
+      errors.canonicalName = 'Canonical name is required for add action';
+    }
+  }
+
+  if (reason !== undefined && reason !== null) {
+    if (typeof reason !== 'string' || reason.length > 1000) {
+      errors.reason = 'Reason must be at most 1000 characters';
+    }
+  }
+
+  if (Object.keys(errors).length > 0) {
+    return { success: false, errors };
+  }
+
+  return {
+    success: true,
+    data: {
+      action,
+      skillId: action === 'link' ? Number(skillId) : undefined,
+      canonicalName: action === 'add' ? canonicalName.trim() : undefined,
+      confidence: Number(confidence),
+      reason: reason ?? null
+    }
+  };
+}
+
 module.exports = {
   UNKNOWN_SKILL_STATUSES,
+  RESOLVE_ACTIONS,
   validateListUnknownSkillsQuery,
   validateUnknownSkillId,
-  validateSearchSkillsQuery
+  validateSearchSkillsQuery,
+  validateResolveUnknownSkillBody
 };
