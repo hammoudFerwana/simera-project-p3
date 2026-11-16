@@ -305,3 +305,46 @@ const { totalMonths, perJob } = calculateExperienceMonths(jobs, {
 - `jobMonths(job, { now })`: counts inclusive months for a single job or `null` if unparseable/invalid. Ongoing items end at the month of `now`.
 - `calculateExperienceMonths(jobs, { now })`: sorts valid intervals, merges overlapping intervals, and returns `{ totalMonths, perJob }`. Never mutates the input array.
 - Total experience is never stored in the database or extraction schema; it is calculated on read.
+
+## Human audit log (US-20)
+
+`shared/src/audit/human-audit.js` provides functions to record human decision changes and look up admin IDs inside caller transactions.
+
+```js
+const {
+  recordHumanChange,
+  getAdminIdForUser
+} = require('shared/src/audit/human-audit');
+
+// Inside a transaction:
+const adminId = await getAdminIdForUser(client, req.user.userId);
+
+const row = await recordHumanChange(client, {
+  candidateId: 1,
+  itemType: 'work_experience',
+  itemId: 42,
+  fieldName: 'start_date',
+  previousValue: '2019-05',
+  newValue: '2019-08',
+  changedBy: adminId,
+  reason: 'Checked the CV'
+});
+// Returns the inserted row, or null if previousValue and newValue are equal.
+```
+
+### Contract: `recordHumanChange(client, options)`
+
+- **`client`**: The caller's database transaction client. The service never opens, commits, or rolls back transactions.
+- **Parameters**:
+  - `candidateId`: Positive integer (`candidate_profiles.id`).
+  - `itemType`: Must be one of `provenance_item_type` enum values (`candidate_profile`, `work_experience`, `education`, `candidate_skills`, `candidate_languages`, `candidate_links`, `certifications`, `projects`, `awards`, `publications`, `volunteering`).
+  - `itemId`: Positive integer or digit string. Stored as text.
+  - `fieldName`: Non-empty string up to 150 characters.
+  - `previousValue`: Previous field value, serialized to JSONB.
+  - `newValue`: New field value, serialized to JSONB.
+  - `changedBy`: Positive integer administrator ID (`admins.id`).
+  - `reason`: Optional string or `null` (defaults to `null`).
+  - `timestamp`: Optional `Date` object (defaults to `new Date()`).
+- **No change, no row**: If `previousValue` and `newValue` are equal (both null/undefined, or identical JSON after stable key sorting), returns `null` without writing to the database.
+- **Append-only**: Rows in `human_audit_log` are never updated or deleted. The module exports no update or delete functions.
+- **Validation**: Any invalid parameter throws a `TypeError` and writes nothing.
