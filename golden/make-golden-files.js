@@ -99,7 +99,7 @@ async function makeFiles() {
     '',
     '### Nova Labs',
     '',
-    'Senior Backend Developer',
+    'Backend Developer',
     'March 2021 - Present',
     '',
     '### Apex Solutions',
@@ -146,7 +146,7 @@ async function makeFiles() {
             text: 'Work Experience',
             heading: HeadingLevel.HEADING_2
           }),
-          new Paragraph('Nova Labs - Senior Backend Developer'),
+          new Paragraph('Nova Labs - Backend Developer'),
           new Paragraph('March 2021 to March 2024 | Dubai, UAE'),
           new Paragraph(
             'Designed and maintained high-throughput REST APIs using Node.js and PostgreSQL.'
@@ -189,7 +189,7 @@ async function makeFiles() {
     doc.moveDown();
 
     doc.fontSize(14).text('Work Experience');
-    doc.fontSize(11).text('Nova Labs - Senior Backend Developer');
+    doc.fontSize(11).text('Nova Labs - Backend Developer');
     doc.fontSize(10).text('March 2021 to March 2024 | Dubai, UAE');
     doc.moveDown(0.5);
 
@@ -224,7 +224,7 @@ async function makeFiles() {
     doc.moveDown();
 
     doc.fontSize(14).text('Work Experience');
-    doc.fontSize(11).text('Nova Labs - Senior Backend Developer');
+    doc.fontSize(11).text('Nova Labs - Backend Developer');
     doc.fontSize(10).text('March 2021 to March 2024 | Dubai, UAE');
     doc.moveDown(0.5);
 
@@ -261,7 +261,7 @@ async function makeFiles() {
     doc.fontSize(10).text('January 2022 to December 2023 | Dubai, UAE');
     doc.moveDown(0.5);
 
-    doc.fontSize(11).text('Nova Labs - Senior Backend Developer');
+    doc.fontSize(11).text('Nova Labs - Backend Developer');
     doc.fontSize(10).text('March 2021 to March 2024 | Dubai, UAE');
     doc.moveDown(0.5);
 
@@ -296,7 +296,7 @@ async function makeFiles() {
     doc.moveDown();
 
     doc.fontSize(14).text('Work Experience');
-    doc.fontSize(11).text('Nova Labs - Senior Backend Developer');
+    doc.fontSize(11).text('Nova Labs - Backend Developer');
     doc.fontSize(10).text('March 2021 to March 2024 | Dubai, UAE');
     doc.moveDown(0.5);
 

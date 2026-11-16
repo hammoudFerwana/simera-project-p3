@@ -13,7 +13,7 @@ Experienced Backend Developer with expertise in building scalable APIs and distr
 
 ### Nova Labs
 
-Senior Backend Developer
+Backend Developer
 March 2021 - Present
 
 ### Apex Solutions
