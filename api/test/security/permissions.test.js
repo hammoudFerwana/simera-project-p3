@@ -438,5 +438,59 @@ describe('Permissions Matrix & Cross-Candidate Isolation (US-24)', () => {
     });
   });
 
+  describe('Cross-candidate isolation', () => {
+    test("candidate B never sees candidate A's files via GET /api/candidate/files", async () => {
+      const resB = await request(app)
+        .get('/api/candidate/files')
+        .set('Cookie', candidateBCookie);
 
+      expect(resB.status).toBe(200);
+      const bFileIds = resB.body.files.map((f) => f.id);
+      expect(bFileIds).toContain(fileB.id);
+      expect(bFileIds).not.toContain(fileA.id);
+
+      const resA = await request(app)
+        .get('/api/candidate/files')
+        .set('Cookie', candidateACookie);
+
+      expect(resA.status).toBe(200);
+      const aFileIds = resA.body.files.map((f) => f.id);
+      expect(aFileIds).toContain(fileA.id);
+      expect(aFileIds).not.toContain(fileB.id);
+    });
+
+    test("candidate B receives 403 on GET /api/uploads/<A's fileId>/raw", async () => {
+      const res = await request(app)
+        .get(`/api/uploads/${fileA.id}/raw`)
+        .set('Cookie', candidateBCookie);
+
+      expect(res.status).toBe(403);
+      expect(res.body.errors?.auth).toBe(
+        'You do not have access to this resource'
+      );
+    });
+
+    test("candidate A (the owner) also receives 403 on GET /api/uploads/<A's fileId>/raw (admin only)", async () => {
+      const res = await request(app)
+        .get(`/api/uploads/${fileA.id}/raw`)
+        .set('Cookie', candidateACookie);
+
+      expect(res.status).toBe(403);
+      expect(res.body.errors?.auth).toBe(
+        'You do not have access to this resource'
+      );
+    });
+
+    test("admin receives 200 on GET /api/uploads/<A's fileId>/raw", async () => {
+      const res = await request(app)
+        .get(`/api/uploads/${fileA.id}/raw`)
+        .set('Cookie', adminCookie);
+
+      expect(res.status).toBe(200);
+      expect(res.headers['content-disposition']).toMatch(
+        /attachment;\s*filename="candA-cv.docx"/
+      );
+      expect(res.headers['x-content-type-options']).toBe('nosniff');
+    });
+  });
 });
