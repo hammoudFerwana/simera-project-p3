@@ -29,7 +29,7 @@ const { processJob } = require('../worker/src/process-job');
 const realSteps = require('../worker/src/steps/index');
 const { getCandidateProfile } = require('../api/src/admin/candidates.service');
 const { cleanupGoldenUsers } = require('./lib/cleanup');
-const { compareStoredWithExpected, calculateRate } = require('./lib/compare');
+const { compareStoredWithExpected } = require('./lib/compare');
 const { lookupPlantedCase } = require('./lib/planted');
 const { generateMarkdownReport } = require('./lib/report');
 
@@ -103,10 +103,7 @@ async function runGolden(options = {}) {
     const filePath = path.resolve(__dirname, entry.file);
     const fileBuffer = fs.readFileSync(filePath);
 
-    const { userId, candidateId } = await getOrCreateCandidate(
-      pool,
-      entry.email
-    );
+    const { candidateId } = await getOrCreateCandidate(pool, entry.email);
 
     let actualStatus = 'stored';
     let rejectReason = null;

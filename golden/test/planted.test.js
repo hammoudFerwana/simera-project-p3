@@ -3,7 +3,7 @@ const { lookupPlantedCase } = require('../lib/planted');
 describe('planted: lookup planted test cases', () => {
   test('returns available decision when conflict row exists', async () => {
     const fakeDb = {
-      query: jest.fn().mockImplementation((sql, params) => {
+      query: jest.fn().mockImplementation((sql, _params) => {
         if (sql.includes('FROM conflicts')) {
           return Promise.resolve({
             rows: [
@@ -36,7 +36,7 @@ describe('planted: lookup planted test cases', () => {
 
   test('returns available decision when human_reviews row exists', async () => {
     const fakeDb = {
-      query: jest.fn().mockImplementation((sql, params) => {
+      query: jest.fn().mockImplementation((sql, _params) => {
         if (sql.includes('FROM conflicts')) {
           return Promise.resolve({ rows: [] });
         }
@@ -66,7 +66,7 @@ describe('planted: lookup planted test cases', () => {
 
   test('returns C7 decision when unknown_skills row exists', async () => {
     const fakeDb = {
-      query: jest.fn().mockImplementation((sql, params) => {
+      query: jest.fn().mockImplementation((sql, _params) => {
         if (sql.includes('FROM unknown_skills')) {
           return Promise.resolve({
             rows: [{ skill_name: 'Zorbex', status: 'pending' }]
