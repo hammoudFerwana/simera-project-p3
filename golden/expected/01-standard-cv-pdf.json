@@ -1,0 +1,57 @@
+{
+  "candidate": {
+    "first_name": "Lina",
+    "last_name": "Haddad",
+    "headline": "Backend Developer",
+    "city": "Amman",
+    "country_code": "JO"
+  },
+  "work_experience": [
+    {
+      "company_name": "Nova Labs",
+      "job_title": "Backend Developer",
+      "start_date": "2021-03",
+      "end_date": null,
+      "is_current": true
+    },
+    {
+      "company_name": "Apex Solutions",
+      "job_title": "Junior Backend Developer",
+      "start_date": "2018-01",
+      "end_date": "2020-12",
+      "is_current": false
+    },
+    {
+      "company_name": "Byte Systems",
+      "job_title": "Software Engineering Intern",
+      "start_date": "2016-06",
+      "end_date": "2017-12",
+      "is_current": false
+    }
+  ],
+  "education": [
+    {
+      "institution_name": "University of Jordan",
+      "degree_level": "Bachelor",
+      "field_of_study": "Computer Science",
+      "start_date": "2014-09",
+      "end_date": "2018-06",
+      "is_current": false
+    }
+  ],
+  "skills": ["Node.js", "PostgreSQL", "Docker", "TypeScript", "Redis"],
+  "languages": [
+    {
+      "language": "English"
+    },
+    {
+      "language": "Arabic"
+    }
+  ],
+  "links": [],
+  "certifications": [],
+  "projects": [],
+  "awards": [],
+  "publications": [],
+  "volunteering": []
+}
