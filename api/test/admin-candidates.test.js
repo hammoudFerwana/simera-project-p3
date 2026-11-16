@@ -357,6 +357,29 @@ describe('Admin Candidates API (US-12)', () => {
     expect(res.body.items[0].id).toBe(cand1.candidateId);
   });
 
+  // hasPendingReview=false with one pending and one completed human_reviews row, then only the candidate with no pending review.
+  it('hasPendingReview=false returns only the candidate with no pending review', async () => {
+    // cand3 gets a pending review so only cand2 has no pending reviews among the seeded candidates
+    const hrPending3 = await pool.query(
+      `INSERT INTO human_reviews (
+         candidate_id, review_target_type, item_id, review_reason, review_status, created_at
+       )
+       VALUES ($1, 'conflict', 3, 'conflict', 'pending', NOW())
+       RETURNING id`,
+      [cand3.candidateId]
+    );
+    created.humanReviewIds.push(hrPending3.rows[0].id);
+
+    const res = await request(app)
+      .get(`/api/admin/candidates?hasPendingReview=false&search=${RUN_ID}`)
+      .set('Cookie', adminCookie);
+
+    expect(res.status).toBe(200);
+    expect(res.body.total).toBe(1);
+    expect(res.body.items).toHaveLength(1);
+    expect(res.body.items[0].id).toBe(cand2.candidateId);
+  });
+
   // status filter: latest job failed vs completed, then status=failed returns only the first. status=unknown -> 400.
   it('status filter: returns candidate matching latest job status, rejects unknown status with 400', async () => {
     // cand1 gets a completed job
