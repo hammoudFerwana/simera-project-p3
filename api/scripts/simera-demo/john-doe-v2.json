@@ -1,0 +1,50 @@
+{
+  "email": "xfgmvplznqhcnlikfz@jbsze.net",
+  "first_name": "John",
+  "last_name": "Doe",
+  "headline": "Senior Backend Developer",
+  "summary": "Backend developer building REST APIs with Node.js and PostgreSQL.",
+  "phone": "+970 599 123 456",
+  "city": "Nablus",
+  "country": "Palestine",
+  "links": [
+    { "type": "linkedin", "url": "https://www.linkedin.com/in/john-doe-demo" },
+    { "type": "github", "url": "https://github.com/john-doe-demo" }
+  ],
+  "work_experience": [
+    {
+      "job_title": "Backend Developer",
+      "company": "Demo Tech",
+      "start_date": "March 2021",
+      "end_date": "Present",
+      "location": "Ramallah, Palestine",
+      "employment_type": "Full-time",
+      "description": "Builds and maintains REST APIs for internal tools."
+    },
+    {
+      "job_title": "Junior Developer",
+      "company": "Sample Labs",
+      "start_date": "June 2019",
+      "end_date": "February 2021",
+      "location": "Nablus, Palestine"
+    }
+  ],
+  "education": [
+    {
+      "institution": "Birzeit University",
+      "degree": "Bachelor of Science",
+      "field_of_study": "Computer Science",
+      "start_date": "2015",
+      "end_date": "2019"
+    }
+  ],
+  "skills": [
+    { "name": "Node.js", "level": "Expert" },
+    { "name": "PostgreSQL", "level": "Intermediate" },
+    { "name": "Docker" }
+  ],
+  "languages": [
+    { "language": "Arabic", "level": "Native" },
+    { "language": "English", "level": "Professional working" }
+  ]
+}

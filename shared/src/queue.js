@@ -41,6 +41,61 @@ async function enqueueUnfinishedJobs(boss, db) {
   return rows.length;
 }
 
+// pg-boss keeps its jobs in this schema (its default).
+const BOSS_SCHEMA = 'pgboss';
+
+// Jobs whose send to the queue was lost: 'queued' in processing_jobs, older
+// than the grace period (so a send the API is still making is not doubled),
+// and with no live pg-boss job (created, retry or active) for that id.
+const LOST_JOBS_SQL = `SELECT pj.id
+  FROM processing_jobs pj
+  WHERE pj.status = 'queued'
+    AND pj.created_at < CURRENT_TIMESTAMP - make_interval(secs => $2)
+    AND NOT EXISTS (
+      SELECT 1
+      FROM ${BOSS_SCHEMA}.job b
+      WHERE b.name = $1
+        AND b.state IN ('created', 'retry', 'active')
+        AND b.data->>'jobId' = pj.id::text
+    )
+  ORDER BY pj.id`;
+
+// Sends the lost jobs (see LOST_JOBS_SQL) to the queue; returns how many.
+async function enqueueLostJobs(boss, db, { graceSeconds = 60 } = {}) {
+  const { rows } = await db.query(LOST_JOBS_SQL, [QUEUE, graceSeconds]);
+  for (const { id } of rows) {
+    await enqueueJob(boss, id);
+  }
+  return rows.length;
+}
+
+// Runs enqueueLostJobs every intervalSeconds, so a job whose send failed in
+// the API is processed without a worker restart. A run that fails is logged
+// and the next one tries again. Returns a function that stops the sweep.
+function startQueueSweep(
+  boss,
+  db,
+  { intervalSeconds = 60, graceSeconds = 60, logger = console } = {}
+) {
+  let running = false;
+  const timer = setInterval(async () => {
+    if (running) return; // the previous run is still going
+    running = true;
+    try {
+      const sent = await enqueueLostJobs(boss, db, { graceSeconds });
+      if (sent > 0) {
+        logger.log(`queue sweep: ${sent} lost job(s) sent to the queue`);
+      }
+    } catch (error) {
+      logger.error('queue sweep failed:', error.message);
+    } finally {
+      running = false;
+    }
+  }, intervalSeconds * 1000);
+  timer.unref();
+  return () => clearInterval(timer);
+}
+
 async function startWorker(boss, db, handle) {
   await boss.work(
     QUEUE,
@@ -62,6 +117,8 @@ module.exports = {
   startBoss,
   enqueueJob,
   enqueueUnfinishedJobs,
+  enqueueLostJobs,
+  startQueueSweep,
   startWorker,
   QUEUE
 };
