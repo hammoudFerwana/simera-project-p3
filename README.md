@@ -896,6 +896,50 @@ Returns the complete chronological change history for a candidate profile, order
     - Invalid parameters throw `TypeError`.
 - `getAdminIdForUser(client, userId)`: Resolves an administrator ID (`admins.id`) for a given user ID (`users.id`), returning the integer ID or `null`.
 
+### Security and permissions (US-24)
+
+Automated security verification covering endpoint permissions, cross-candidate data isolation, password storage, log sanitization, safe file handling, and prompt injection defenses.
+
+#### Permissions matrix
+
+The table below defines expected responses across all endpoints on develop for unauthenticated requests, candidates, and administrators. This matrix is defined in `api/test/security/permissions-matrix.js` and verified by table-driven automated tests in `api/test/security/permissions.test.js`.
+
+| Method | Path                                | Public | No Auth | Candidate | Admin | Description                                                       |
+| ------ | ----------------------------------- | :----: | :-----: | :-------: | :---: | ----------------------------------------------------------------- |
+| `POST` | `/api/auth/register`                |  Yes   |   201   |    201    |  201  | Register candidate account                                        |
+| `POST` | `/api/auth/verify-otp`              |  Yes   |   200   |    200    |  200  | Verify email with OTP code                                        |
+| `POST` | `/api/auth/resend-otp`              |  Yes   |   200   |    200    |  200  | Resend OTP verification code                                      |
+| `POST` | `/api/auth/login`                   |  Yes   |   200   |    200    |  200  | Authenticate with email and password                              |
+| `POST` | `/api/auth/logout`                  |  Yes   |   200   |    200    |  200  | Clear session authentication cookie                               |
+| `GET`  | `/api/auth/me`                      |   No   |   401   |    200    |  200  | Get authenticated user profile and role                           |
+| `POST` | `/api/uploads/cv`                   |   No   |   401   |   202*    |  403  | Upload candidate CV (PDF or DOCX) (*400 if no file attached)      |
+| `POST` | `/api/uploads/linkedin`             |   No   |   401   |   202*    |  403  | Upload LinkedIn export file (Markdown) (*400 if no file attached) |
+| `GET`  | `/api/uploads/:fileId/raw`          |   No   |   401   |    403    |  200  | Download raw uploaded file (admin only)                           |
+| `GET`  | `/api/candidate/files`              |   No   |   401   |    200    |  403  | List files for authenticated candidate                            |
+| `GET`  | `/api/admin/candidates`             |   No   |   401   |    403    |  200  | List candidate profiles with search and pagination                |
+| `GET`  | `/api/admin/candidates/:id`         |   No   |   401   |    403    |  200  | Get single candidate profile details                              |
+| `GET`  | `/api/admin/candidates/:id/history` |   No   |   401   |    403    |  200  | Get candidate audit change history                                |
+
+#### What each security test proves
+
+- **`api/test/security/permissions.test.js`**:
+  - **Permissions matrix**: verifies that unauthenticated requests receive 401 for protected routes (and proper status for public auth routes), candidates access only candidate routes, and administrators access only admin routes.
+  - **Auth before file parsing**: verifies that non-candidates and unauthenticated callers receive 401/403 before any file parsing or payload upload occurs.
+  - **Cross-candidate isolation**: verifies that candidate B never sees candidate A's files via `GET /api/candidate/files`, candidate B receives 403 on `GET /api/uploads/<A's fileId>/raw`, candidate A (the file owner) also receives 403 on raw download (admin only), and only admins receive 200.
+
+- **`api/test/security/passwords-and-logs.test.js`**:
+  - **Password hashing**: verifies that user passwords are stored as bcrypt hashes and the plain password is never stored or queryable in the database.
+  - **Log sanitization**: spies on all `console` methods (`log`, `info`, `warn`, `error`, `debug`) during registration, login, OTP verification, file upload, and worker job processing, proving that plain passwords, OTP codes, and distinctive CV text never leak into application logs.
+
+- **`shared/test/security/files.test.js`**:
+  - **DOCX macro safety (AC3)**: verifies that extracting text from a DOCX containing embedded macros (`word/vbaProject.bin`) extracts text safely without executing macros. Also proves that `.docm` files are rejected at upload.
+  - **Markdown download safety (AC4)**: verifies that an uploaded Markdown file containing `<script>` tags is served strictly as an attachment (`Content-Disposition: attachment`, `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'; sandbox`) with non-HTML content type, preventing browser execution.
+  - **Rejected upload cleanup (AC7)**: verifies that uploads rejected for any reason (unsupported format/extension, MIME mismatch, oversize > 10 MB, corrupted file, no readable text, duplicate file hash) leave zero files in the storage folder and zero rows in `uploaded_files`.
+
+- **`worker/test/security/prompt-injection.test.js`**:
+  - **Prompt isolation (AC5)**: verifies that untrusted CV text is strictly encapsulated within `<cv_text>` tags with closing tag sanitization, and the system prompt explicitly commands the model to treat document content as data and ignore embedded instructions.
+  - **Obedience defense (AC5)**: verifies that if an LLM obeys prompt injection instructions and returns invented values without corresponding evidence in the source document, code validation flags them as `evidence_not_found` and mapper logic prevents invented data from persisting.
+
 ## Testing and Code Quality
 
 - **Run Tests**:
