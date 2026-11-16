@@ -9,7 +9,8 @@ const { PermanentError, TemporaryError } = require('shared/src/errors');
 const SUPPORTED_MIME_TYPES = [
   MIME_TYPES.pdf,
   MIME_TYPES.docx,
-  MIME_TYPES.markdown
+  MIME_TYPES.markdown,
+  MIME_TYPES.json // Simera file (US-22): same path as the other sources
 ];
 
 let defaultStorage = null;
@@ -41,7 +42,7 @@ function createExtractTextStep({
 } = {}) {
   return async function extractText(ctx) {
     const { rows } = await db.query(
-      'SELECT storage_location, mime_type, source_type FROM uploaded_files WHERE id = $1',
+      'SELECT storage_location, mime_type FROM uploaded_files WHERE id = $1',
       [ctx.fileId]
     );
 
@@ -49,11 +50,7 @@ function createExtractTextStep({
       throw new PermanentError('Uploaded file not found');
     }
 
-    const { storage_location, mime_type, source_type } = rows[0];
-
-    if (source_type === 'simera_profile') {
-      throw new PermanentError('Simera files are not supported yet');
-    }
+    const { storage_location, mime_type } = rows[0];
 
     if (!SUPPORTED_MIME_TYPES.includes(mime_type)) {
       throw new PermanentError('Unsupported file type');

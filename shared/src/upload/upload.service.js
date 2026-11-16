@@ -13,6 +13,7 @@ const {
   SOURCE_FORMATS
 } = require('./file-types');
 const { MAX_FILE_SIZE_BYTES } = require('./upload.config');
+const { createProcessingJob } = require('./processing-jobs');
 
 const UNIQUE_VIOLATION = '23505';
 const FILENAME_MAX_LENGTH = 500;
@@ -128,14 +129,8 @@ async function insertRows(db, row, createJob, logger) {
 
     let jobId = null;
     if (createJob) {
-      // Status keeps its default ('queued'); the worker fills the rest.
-      const jobResult = await client.query(
-        `INSERT INTO processing_jobs (file_id, created_at)
-        VALUES ($1, CURRENT_TIMESTAMP)
-        RETURNING id`,
-        [fileId]
-      );
-      jobId = jobResult.rows[0].id;
+      // The file row is new, so it has no job yet and an id always comes back.
+      jobId = await createProcessingJob(client, fileId);
     }
 
     await client.query('COMMIT');
@@ -178,6 +173,8 @@ async function removeRawFile(storage, storageLocation, logger) {
  *   3. size is 10 MB or less
  *   4. the file opens and its text is not empty or nearly empty
  *   5. the text hash is not in uploaded_files (duplicate)
+ *   5b. when resolveCandidateId is given (Simera, US-22): the candidate is
+ *       found from the text; it throws an UploadError when it can't be
  *   6. the raw copy is saved unchanged
  *   7. uploaded_files (+ processing_jobs when createJob) in one transaction
  *   8. the job is sent to the queue, once
@@ -185,7 +182,7 @@ async function removeRawFile(storage, storageLocation, logger) {
  * A rejected file leaves nothing behind: no raw file, no row, no job.
  * Once the rows are committed the upload is accepted, even if sending the job
  * to the queue fails: the job stays 'queued' in processing_jobs (the durable
- * record) and the failure is logged.
+ * record), the failure is logged, and the worker's sweep sends it later.
  *
  * @param {object} deps
  * @param {{ query: Function, connect: Function }} deps.db pg Pool
@@ -195,20 +192,26 @@ async function removeRawFile(storage, storageLocation, logger) {
  * @param {{ minExtractedTextChars: number }} deps.config upload settings
  * @param {{ error: Function }} [deps.logger]
  * @param {object} input
- * @param {number} input.candidateId candidate_profiles.id
- * @param {'cv' | 'linkedin'} input.sourceType
+ * @param {number} [input.candidateId] candidate_profiles.id, when known
+ *   before the upload (candidate slots)
+ * @param {(text: string) => Promise<number>} [input.resolveCandidateId] used
+ *   instead of candidateId when the candidate is named inside the file
+ *   (Simera: the email in the JSON). Runs after the duplicate check and
+ *   before anything is saved; it throws an UploadError to reject the file.
+ * @param {'cv' | 'linkedin' | 'simera_profile'} input.sourceType
  * @param {string} input.originalFilename
  * @param {Buffer} input.buffer the raw bytes
  * @param {Date} [input.uploadedAt] when the upload was received
  * @param {boolean} [input.createJob] false for Simera, whose job is created
  *   when the admin clicks the button (US-22)
- * @returns {Promise<{ fileId: number, jobId: number | null }>}
+ * @returns {Promise<{ fileId: number, jobId: number | null, candidateId: number }>}
  * @throws {UploadError} for a rejected file
  */
 async function processUpload(
   { db, storage, enqueueJob, config, logger = console },
   {
-    candidateId,
+    candidateId: knownCandidateId,
+    resolveCandidateId,
     sourceType,
     originalFilename,
     buffer,
@@ -250,6 +253,10 @@ async function processUpload(
   if (existing.rows.length > 0) {
     throw uploadErrors.duplicate();
   }
+
+  const candidateId = resolveCandidateId
+    ? await resolveCandidateId(text)
+    : knownCandidateId;
   const validatedAt = new Date();
 
   const storageLocation = await storage.save(buffer, format.extension);
@@ -282,13 +289,13 @@ async function processUpload(
     try {
       await enqueueJob(ids.jobId);
     } catch (error) {
-      // The file is saved and its job row stays 'queued'; it still has to be
-      // sent to the queue later (see README, "Queue dependency").
+      // The file is saved and its job row stays 'queued'; the worker's
+      // periodic sweep sends it to the queue later.
       logger.error(`Sending job ${ids.jobId} to the queue failed`, error.stack);
     }
   }
 
-  return ids;
+  return { ...ids, candidateId };
 }
 
 module.exports = {
