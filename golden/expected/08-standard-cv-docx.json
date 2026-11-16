@@ -1,0 +1,43 @@
+{
+  "candidate": {
+    "first_name": "Omar",
+    "last_name": "Saleh",
+    "headline": "Full Stack Engineer",
+    "city": "Cairo",
+    "country_code": "EG"
+  },
+  "work_experience": [
+    {
+      "company_name": "Pyramid Tech",
+      "job_title": "Software Engineer",
+      "start_date": "2020-05",
+      "end_date": null,
+      "is_current": true
+    }
+  ],
+  "education": [
+    {
+      "institution_name": "Cairo University",
+      "degree_level": "Bachelor",
+      "field_of_study": "Computer Engineering",
+      "start_date": "2016-09",
+      "end_date": "2020-06",
+      "is_current": false
+    }
+  ],
+  "skills": ["Python", "Django", "React", "PostgreSQL"],
+  "languages": [
+    {
+      "language": "Arabic"
+    },
+    {
+      "language": "English"
+    }
+  ],
+  "links": [],
+  "certifications": [],
+  "projects": [],
+  "awards": [],
+  "publications": [],
+  "volunteering": []
+}

@@ -1,0 +1,211 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "id": "01-standard-cv-pdf",
+      "order": 1,
+      "email": "lina.haddad@golden.example",
+      "file": "files/01-standard-cv.pdf",
+      "sourceType": "cv",
+      "expect": "stored",
+      "rejectReason": null,
+      "expected": "expected/01-standard-cv-pdf.json",
+      "planted": [
+        {
+          "section": "skills",
+          "field": "skill_name",
+          "case": "C7",
+          "decision": "C7"
+        }
+      ]
+    },
+    {
+      "id": "02-linkedin-md",
+      "order": 2,
+      "email": "lina.haddad@golden.example",
+      "file": "files/02-linkedin.md",
+      "sourceType": "linkedin",
+      "expect": "stored",
+      "rejectReason": null,
+      "expected": "expected/02-linkedin-md.json",
+      "planted": [
+        {
+          "section": "work_experience",
+          "field": "start_date",
+          "case": "A3",
+          "decision": "A3"
+        },
+        {
+          "section": "work_experience",
+          "field": "job",
+          "case": "A4",
+          "decision": "A4"
+        },
+        {
+          "section": "candidate",
+          "field": "headline",
+          "case": "B2",
+          "decision": "B2"
+        }
+      ]
+    },
+    {
+      "id": "03-cv-v2-docx",
+      "order": 3,
+      "email": "lina.haddad@golden.example",
+      "file": "files/03-cv-v2.docx",
+      "sourceType": "cv",
+      "expect": "stored",
+      "rejectReason": null,
+      "expected": "expected/03-cv-v2-docx.json",
+      "planted": [
+        {
+          "section": "work_experience",
+          "field": "end_date",
+          "case": "B1",
+          "decision": "B1"
+        },
+        {
+          "section": "candidate",
+          "field": "city",
+          "case": "B2",
+          "decision": "B2"
+        }
+      ]
+    },
+    {
+      "id": "04-cv-v3-pdf",
+      "order": 4,
+      "email": "lina.haddad@golden.example",
+      "file": "files/04-cv-v3.pdf",
+      "sourceType": "cv",
+      "expect": "stored",
+      "rejectReason": null,
+      "expected": "expected/04-cv-v3-pdf.json",
+      "planted": [
+        {
+          "section": "work_experience",
+          "field": "is_current",
+          "case": "C1",
+          "decision": "C1"
+        }
+      ]
+    },
+    {
+      "id": "05-cv-v4-pdf",
+      "order": 5,
+      "email": "lina.haddad@golden.example",
+      "file": "files/05-cv-v4.pdf",
+      "sourceType": "cv",
+      "expect": "stored",
+      "rejectReason": null,
+      "expected": "expected/05-cv-v4-pdf.json",
+      "planted": [
+        {
+          "section": "education",
+          "field": "start_date",
+          "case": "C2",
+          "decision": "C2"
+        }
+      ]
+    },
+    {
+      "id": "06-cv-v5-pdf",
+      "order": 6,
+      "email": "lina.haddad@golden.example",
+      "file": "files/06-cv-v5.pdf",
+      "sourceType": "cv",
+      "expect": "stored",
+      "rejectReason": null,
+      "expected": "expected/06-cv-v5-pdf.json",
+      "planted": [
+        {
+          "section": "work_experience",
+          "field": "job_title",
+          "case": "C3",
+          "decision": "C3"
+        }
+      ]
+    },
+    {
+      "id": "07-cv-v6-pdf",
+      "order": 7,
+      "email": "lina.haddad@golden.example",
+      "file": "files/07-cv-v6.pdf",
+      "sourceType": "cv",
+      "expect": "stored",
+      "rejectReason": null,
+      "expected": "expected/07-cv-v6-pdf.json",
+      "planted": [
+        {
+          "section": "candidate",
+          "field": "headline",
+          "case": "C6",
+          "decision": "C6"
+        }
+      ]
+    },
+    {
+      "id": "08-standard-cv-docx",
+      "order": 8,
+      "email": "omar.saleh@golden.example",
+      "file": "files/08-standard-cv.docx",
+      "sourceType": "cv",
+      "expect": "stored",
+      "rejectReason": null,
+      "expected": "expected/08-standard-cv-docx.json",
+      "planted": []
+    },
+    {
+      "id": "09-linkedin-md",
+      "order": 9,
+      "email": "omar.saleh@golden.example",
+      "file": "files/09-linkedin.md",
+      "sourceType": "linkedin",
+      "expect": "stored",
+      "rejectReason": null,
+      "expected": "expected/09-linkedin-md.json",
+      "planted": [
+        {
+          "section": "projects",
+          "field": "name",
+          "case": "A1",
+          "decision": "A1"
+        }
+      ]
+    },
+    {
+      "id": "10-cv-wrong-email-pdf",
+      "order": 10,
+      "email": "omar.saleh@golden.example",
+      "file": "files/10-cv-wrong-email.pdf",
+      "sourceType": "cv",
+      "expect": "rejected",
+      "rejectReason": "The file contains an email that does not match your account email",
+      "expected": null,
+      "planted": []
+    },
+    {
+      "id": "11-corrupted-pdf",
+      "order": 11,
+      "email": "omar.saleh@golden.example",
+      "file": "files/11-corrupted.pdf",
+      "sourceType": "cv",
+      "expect": "rejected",
+      "rejectReason": "The file is corrupted, please upload a valid file",
+      "expected": null,
+      "planted": []
+    },
+    {
+      "id": "12-scanned-pdf",
+      "order": 12,
+      "email": "omar.saleh@golden.example",
+      "file": "files/12-scanned.pdf",
+      "sourceType": "cv",
+      "expect": "rejected",
+      "rejectReason": "The file has no readable text. Scanned or image-only files are not supported",
+      "expected": null,
+      "planted": []
+    }
+  ]
+}

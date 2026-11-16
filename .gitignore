@@ -19,6 +19,8 @@ npm-debug.log*
 # Raw uploaded files (private storage)
 storage/
 uploads/
+golden/.storage/
+golden/report.md
 
 # OS and editor files
 .DS_Store
