@@ -5,6 +5,7 @@ const {
   normalizeUrlForStorage,
   mergeDuplicateItems
 } = require('./deduplication');
+const { createReviewItem } = require('./review-items');
 async function saveEducation(client, candidateId, educationItems) {
   const savedItems = [];
 
@@ -709,17 +710,50 @@ async function saveLinks(client, candidateId, linkItems) {
   return savedItems;
 }
 
-async function saveSkills(client, { candidateId, fileId, jobId, skills }) {
+async function saveSkills(
+  client,
+  { candidateId, fileId, jobId, skills, confidenceThreshold }
+) {
   const savedSkills = {
-    matched: [],
-    unknown: []
-  };
+  matched: [],
+  unknown: [],
+  reviewCandidates: []
+};
   const savedProvenance = [];
 
   for (const item of skills.matched) {
     const { skillId, fields } = item;
-    const proficiencyLevel = fields.proficiency_level?.value ?? null;
-    const monthsOfExperience = fields.months_of_experience?.value ?? null;
+
+const safeFields = {};
+const lowConfidenceFields = [];
+
+for (const [fieldName, wrapper] of Object.entries(fields ?? {})) {
+  if (wrapper?.value === null || wrapper?.value === undefined) {
+    continue;
+  }
+
+  if (
+    typeof wrapper.confidence === 'number' &&
+    wrapper.confidence < confidenceThreshold
+  ) {
+    if (typeof wrapper.evidence === 'string' && wrapper.evidence.trim()) {
+      lowConfidenceFields.push({
+        fieldName,
+        value: wrapper.value,
+        confidence: wrapper.confidence,
+        evidence: wrapper.evidence
+      });
+    }
+
+    continue;
+  }
+
+  safeFields[fieldName] = wrapper;
+}
+
+const proficiencyLevel = safeFields.proficiency_level?.value ?? null;
+const monthsOfExperience =
+  safeFields.months_of_experience?.value ?? null;
 
     const result = await client.query(
       `INSERT INTO candidate_skills (
@@ -748,12 +782,23 @@ async function saveSkills(client, { candidateId, fileId, jobId, skills }) {
       itemType: 'candidate_skills',
       itemId: savedRow.id,
       jobId,
-      fields,
+      fields: safeFields,
       storedRow: savedRow
     });
 
     savedProvenance.push(...itemProvenance);
-    savedSkills.matched.push(savedRow);
+savedSkills.matched.push(savedRow);
+
+for (const field of lowConfidenceFields) {
+  savedSkills.reviewCandidates.push({
+    itemType: 'candidate_skills',
+    itemId: savedRow.id,
+    fieldName: field.fieldName,
+    value: field.value,
+    confidence: field.confidence,
+    evidence: field.evidence
+  });
+}
   }
 
   for (const item of skills.unknown) {
@@ -781,7 +826,22 @@ async function saveSkills(client, { candidateId, fileId, jobId, skills }) {
     );
 
     if (result.rows.length > 0) {
-      savedSkills.unknown.push(result.rows[0]);
+      const unknownSkill = result.rows[0];
+
+      savedSkills.unknown.push(unknownSkill);
+
+      await client.query(
+        `INSERT INTO human_reviews (
+       candidate_id,
+       review_target_type,
+       item_id,
+       review_reason,
+       review_status,
+       created_at
+     )
+     VALUES ($1, 'unknown_skill', $2, 'unknown_skill', 'pending', CURRENT_TIMESTAMP)`,
+        [candidateId, unknownSkill.id]
+      );
     }
   }
 
@@ -1129,13 +1189,16 @@ function mergeItemsByDeduplicationKey(itemType, items) {
  * @param {Object} params.mappedData
  * @param {Array} [params.reviewItems]
  * @param {Function} [params.beforeCommit]
+ * @param {Object} params.extraction
+ * @param {Array} [params.skillResolutions]
  */
 async function writeExtraction({
   userId,
   jobId,
   mappedData,
   reviewItems = [],
-  beforeCommit
+  beforeCommit,
+  confidenceThreshold = 0.5
 }) {
   // Validate input before acquiring a database connection.
   if (!Number.isInteger(userId) || userId <= 0) {
@@ -1144,6 +1207,16 @@ async function writeExtraction({
 
   if (!Number.isInteger(jobId) || jobId <= 0) {
     throw new TypeError('jobId must be a positive integer.');
+  }
+  if (
+    typeof confidenceThreshold !== 'number' ||
+    !Number.isFinite(confidenceThreshold) ||
+    confidenceThreshold < 0 ||
+    confidenceThreshold > 1
+  ) {
+    throw new TypeError(
+      'confidenceThreshold must be a number between 0 and 1.'
+    );
   }
 
   if (!mappedData || typeof mappedData !== 'object') {
@@ -1336,7 +1409,6 @@ async function writeExtraction({
     let storedProfileRow;
 
     if (profileFields.length > 0) {
-      // بعد استعلام UPDATE أعلاه
       storedProfileRow = profileResult.rows[0];
     } else {
       const profileResult = await client.query(
@@ -1446,6 +1518,20 @@ async function writeExtraction({
     );
     const savedLinks = await saveLinks(client, candidateId, linkItems);
     const savedProvenance = [...savedProfileProvenance];
+    let savedSkills = { matched: [], unknown: [], reviewCandidates: [] };
+
+if (mappedData.skills) {
+  const result = await saveSkills(client, {
+    candidateId,
+    fileId,
+    jobId,
+    skills: mappedData.skills,
+    confidenceThreshold
+  });
+
+  savedSkills = result.savedSkills;
+  savedProvenance.push(...result.savedProvenance);
+}
 
     const allSavedItems = [
       ...savedEducationItems,
@@ -1470,6 +1556,191 @@ async function writeExtraction({
       }));
     });
 
+    const lowConfidenceReviewCandidates = allSavedItems.flatMap((item) => {
+      const fields = item.fields ?? {};
+      const reviewFields = item.reviewFields ?? {};
+
+      return Object.entries(fields)
+        .filter(([fieldName, wrapper]) => {
+          return (
+            wrapper?.value !== null &&
+            wrapper?.value !== undefined &&
+            typeof wrapper.confidence === 'number' &&
+            wrapper.confidence < confidenceThreshold &&
+            typeof wrapper.evidence === 'string' &&
+            wrapper.evidence.trim() !== '' &&
+            !Object.hasOwn(reviewFields, fieldName)
+          );
+        })
+        .map(([fieldName, wrapper]) => ({
+          itemType: item.itemType,
+          itemId: item.itemId,
+          fieldName,
+          value: wrapper.value,
+          confidence: wrapper.confidence,
+          evidence: wrapper.evidence
+        }));
+    });
+
+    const normalizedReviewItems = [
+      ...savedSkills.reviewCandidates.map((reviewCandidate) =>
+  createReviewItem({
+    targetType: 'conflict',
+    candidateId,
+    reviewReason: 'low_confidence',
+    itemType: reviewCandidate.itemType,
+    itemId: reviewCandidate.itemId,
+    fieldName: reviewCandidate.fieldName,
+    options: [
+      {
+        value: reviewCandidate.value,
+        sourceFileId: fileId,
+        confidence: reviewCandidate.confidence,
+        evidence: reviewCandidate.evidence
+      }
+    ]
+  })
+),
+      ...reviewCandidates.map((reviewCandidate) =>
+        createReviewItem({
+          targetType: 'conflict',
+          candidateId,
+          reviewReason: 'intra_source_conflict',
+          itemType: reviewCandidate.itemType,
+          itemId: reviewCandidate.itemId,
+          fieldName: reviewCandidate.fieldName,
+          options: reviewCandidate.values.map(({ wrapper }) => ({
+            value: wrapper.value,
+            sourceFileId: fileId,
+            confidence: wrapper.confidence,
+            evidence: wrapper.evidence
+          }))
+        })
+      ),
+      ...lowConfidenceReviewCandidates.map((candidate) =>
+        createReviewItem({
+          targetType: 'conflict',
+          candidateId,
+          reviewReason: 'low_confidence',
+          itemType: candidate.itemType,
+          itemId: candidate.itemId,
+          fieldName: candidate.fieldName,
+          options: [
+            {
+              value: candidate.value,
+              sourceFileId: fileId,
+              confidence: candidate.confidence,
+              evidence: candidate.evidence
+            }
+          ]
+        })
+      ),
+      ...reviewItems.map((reviewItem) =>
+        createReviewItem({
+          ...reviewItem,
+          candidateId,
+          itemId:
+            reviewItem.itemType === 'candidate_profile'
+              ? String(candidateId)
+              : reviewItem.itemId,
+          options: reviewItem.options?.map((option) => ({
+            ...option,
+            sourceFileId: option.sourceFileId ?? fileId
+          }))
+        })
+      )
+    ];
+
+    let pendingReviewCount = 0;
+
+    for (const reviewItem of normalizedReviewItems) {
+      // Check whether a pending conflict already exists.
+      const existingConflictResult = await client.query(
+        `SELECT id
+     FROM conflicts
+     WHERE candidate_id = $1
+       AND item_type = $2
+       AND item_id = $3
+       AND field_name = $4
+       AND status = 'pending'
+     ORDER BY id
+     LIMIT 1
+     FOR UPDATE`,
+        [
+          reviewItem.candidateId,
+          reviewItem.itemType,
+          reviewItem.itemId,
+          reviewItem.fieldName
+        ]
+      );
+
+      let conflictId;
+      const existingConflict = existingConflictResult.rows[0];
+
+      if (existingConflict) {
+        // Reuse the existing pending conflict.
+        conflictId = existingConflict.id;
+      } else {
+        // Create a new conflict.
+        const conflictResult = await client.query(
+          `INSERT INTO conflicts (
+         candidate_id,
+         item_type,
+         item_id,
+         field_name,
+         status
+       )
+       VALUES ($1, $2, $3, $4, 'pending')
+       RETURNING id`,
+          [
+            reviewItem.candidateId,
+            reviewItem.itemType,
+            reviewItem.itemId,
+            reviewItem.fieldName
+          ]
+        );
+
+        conflictId = conflictResult.rows[0].id;
+
+        // Create one human review for the new conflict.
+        await client.query(
+          `INSERT INTO human_reviews (
+         candidate_id,
+         review_target_type,
+         item_id,
+         review_reason,
+         review_status,
+         created_at
+       )
+       VALUES ($1, 'conflict', $2, $3, 'pending', CURRENT_TIMESTAMP)`,
+          [reviewItem.candidateId, conflictId, reviewItem.reviewReason]
+        );
+
+        pendingReviewCount += 1;
+      }
+
+      // Add the new options to the conflict (new or existing).
+      for (const option of reviewItem.options) {
+        await client.query(
+          `INSERT INTO conflict_options (
+         conflict_id,
+         value,
+         source_file_id,
+         confidence,
+         evidence
+       )
+       VALUES ($1, $2, $3, $4, $5)`,
+          [
+            conflictId,
+            JSON.stringify(option.value),
+            option.sourceFileId,
+            option.confidence,
+            option.evidence
+          ]
+        );
+      }
+    }
+
     for (const item of allSavedItems) {
       const itemProvenance = await saveProvenance(client, {
         candidateId,
@@ -1483,18 +1754,7 @@ async function writeExtraction({
       savedProvenance.push(...itemProvenance);
     }
 
-    let savedSkills = { matched: [], unknown: [] };
-    if (mappedData.skills) {
-      const { savedSkills: sSkills, savedProvenance: sProvenance } =
-        await saveSkills(client, {
-          candidateId,
-          fileId,
-          jobId,
-          skills: mappedData.skills
-        });
-      savedSkills = sSkills;
-      savedProvenance.push(...sProvenance);
-    }
+    pendingReviewCount += savedSkills.unknown.length;
 
     if (typeof beforeCommit === 'function') {
       await beforeCommit(client, { candidateId, fileId, jobId });
@@ -1517,7 +1777,8 @@ async function writeExtraction({
       links: savedLinks,
       skills: savedSkills,
       provenance: savedProvenance,
-      reviewCandidates
+      reviewCandidates,
+      pendingReviewCount
     };
   } catch (error) {
     if (transactionStarted) {

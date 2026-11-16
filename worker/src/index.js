@@ -6,6 +6,7 @@ const {
   enqueueUnfinishedJobs
 } = require('shared/src/queue');
 const { processJob } = require('./process-job');
+const { createSteps } = require('./steps');
 const { loadSkillIndex } = require('./skills/skill-index');
 
 const config = loadConfig({
@@ -23,7 +24,14 @@ async function main() {
   const boss = await startBoss(config.DATABASE_URL);
   const skillIndex = await loadSkillIndex(pool);
   console.log(`loaded skill index (${skillIndex.size} skills)`);
-  await startWorker(boss, pool, processJob);
+  await startWorker(
+    boss,
+    pool,
+    (db, jobId) =>
+      processJob(db, jobId, {
+      steps: createSteps(config.CONFIDENCE_THRESHOLD)
+    })
+  );
   const sent = await enqueueUnfinishedJobs(boss, pool);
   console.log(`worker started (${sent} unfinished jobs sent to the queue)`);
 

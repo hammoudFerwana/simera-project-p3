@@ -125,6 +125,9 @@ describe('skills-storage integration', () => {
       await pool.query('DELETE FROM unknown_skills WHERE candidate_id = $1', [
         candidateId
       ]);
+      await pool.query('DELETE FROM human_reviews WHERE candidate_id = $1', [
+        candidateId
+      ]);
       await pool.query('DELETE FROM education WHERE candidate_id = $1', [
         candidateId
       ]);

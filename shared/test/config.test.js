@@ -79,4 +79,44 @@ describe('shared/src/config', () => {
     const message = errorSpy.mock.calls[0][0];
     expect(message).not.toContain(secretValue);
   });
+  it('uses the default confidence threshold when not provided', () => {
+  const env = {
+    NODE_ENV: 'test',
+    API_PORT: '3000',
+    DATABASE_URL: 'postgresql://localhost/test'
+  };
+
+  const config = loadConfig({ env, skipDotenv: true });
+
+  expect(config.CONFIDENCE_THRESHOLD).toBe(0.5);
+});
+
+it('loads a valid confidence threshold', () => {
+  const env = {
+    NODE_ENV: 'test',
+    API_PORT: '3000',
+    DATABASE_URL: 'postgresql://localhost/test',
+    CONFIDENCE_THRESHOLD: '0.7'
+  };
+
+  const config = loadConfig({ env, skipDotenv: true });
+
+  expect(config.CONFIDENCE_THRESHOLD).toBe(0.7);
+});
+
+it.each(['-0.1', '1.1', 'abc', ''])(
+  'rejects invalid confidence threshold: %s',
+  (value) => {
+    const env = {
+      NODE_ENV: 'test',
+      API_PORT: '3000',
+      DATABASE_URL: 'postgresql://localhost/test',
+      CONFIDENCE_THRESHOLD: value
+    };
+
+    expect(() => loadConfig({ env, skipDotenv: true })).toThrow(
+      'process.exit: 1'
+    );
+  }
+);
 });

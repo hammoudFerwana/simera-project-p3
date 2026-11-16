@@ -275,6 +275,20 @@ describe('storage-writer', () => {
     pool.connect.mockResolvedValue(client);
 
     client.query.mockImplementation(async (sql) => {
+      if (sql.includes('FROM conflicts')) {
+        return { rows: [], rowCount: 0 };
+      }
+      if (sql.includes('INSERT INTO conflicts')) {
+        return { rows: [{ id: 501 }], rowCount: 1 };
+      }
+
+      if (sql.includes('INSERT INTO conflict_options')) {
+        return { rows: [{ id: 601 }], rowCount: 1 };
+      }
+
+      if (sql.includes('INSERT INTO human_reviews')) {
+        return { rows: [{ id: 701 }], rowCount: 1 };
+      }
       if (sql.includes('INSERT INTO data_provenance_sources')) {
         return { rows: [], rowCount: 1 };
       }
@@ -299,7 +313,13 @@ describe('storage-writer', () => {
       }
       if (sql.includes('SELECT') && sql.includes('candidate_id')) {
         return {
-          rows: [{ candidate_id: 10, job_id: 5 }]
+          rows: [
+            {
+              candidate_id: 10,
+              job_id: 5,
+              file_id: 20
+            }
+          ]
         };
       }
 
@@ -335,7 +355,129 @@ describe('storage-writer', () => {
       return { rows: [] };
     });
   });
+  test('should create a human review for a new unknown skill', async () => {
+    const originalMock = client.query.getMockImplementation();
 
+    client.query.mockImplementation(async (sql, params) => {
+      if (sql.includes('INSERT INTO unknown_skills')) {
+        return {
+          rows: [{ id: 901, skill_name: 'Rust', status: 'pending' }],
+          rowCount: 1
+        };
+      }
+
+      return originalMock(sql, params);
+    });
+
+    const result = await writeExtraction({
+      userId: 1,
+      jobId: 5,
+      mappedData: {
+        profile: {},
+        skills: {
+          matched: [],
+          unknown: [
+            {
+              sourceIndex: 0,
+              skillName: 'Rust',
+              confidence: 0.85,
+              evidence: 'Developed backend services using Rust'
+            }
+          ]
+        }
+      }
+    });
+
+    expect(client.query).toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO unknown_skills'),
+      [10, 'Rust', 20, 0.85, 'Developed backend services using Rust']
+    );
+
+    expect(client.query).toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO human_reviews'),
+      [10, 901]
+    );
+
+    expect(result.skills.unknown).toHaveLength(1);
+    expect(result.pendingReviewCount).toBe(1);
+  });
+  test('should route low-confidence matched skill fields to human review', async () => {
+  const originalMock = client.query.getMockImplementation();
+
+  client.query.mockImplementation(async (sql, params) => {
+    if (sql.includes('INSERT INTO candidate_skills')) {
+      return {
+        rows: [
+          {
+            id: 902,
+            candidate_id: 10,
+            skill_id: 42,
+            proficiency_level: null,
+            months_of_experience: 36
+          }
+        ],
+        rowCount: 1
+      };
+    }
+
+    return originalMock(sql, params);
+  });
+
+  const result = await writeExtraction({
+    userId: 1,
+    jobId: 5,
+    mappedData: {
+      profile: {},
+      skills: {
+        matched: [
+          {
+            sourceIndex: 0,
+            skillId: 42,
+            fields: {
+              proficiency_level: {
+                value: 'advanced',
+                confidence: 0.3,
+                evidence: 'Advanced Python skills'
+              },
+              months_of_experience: {
+                value: 36,
+                confidence: 0.95,
+                evidence: 'Three years of experience'
+              }
+            }
+          }
+        ],
+        unknown: []
+      }
+    }
+  });
+
+  const skillInsert = client.query.mock.calls.find(([sql]) =>
+    sql.includes('INSERT INTO candidate_skills')
+  );
+
+  expect(skillInsert).toBeDefined();
+  expect(skillInsert[1]).toEqual([10, 42, null, 36]);
+
+  const optionInsert = client.query.mock.calls.find(([sql]) =>
+    sql.includes('INSERT INTO conflict_options')
+  );
+
+  expect(optionInsert).toBeDefined();
+  expect(optionInsert[1]).toContain(JSON.stringify('advanced'));
+
+  const provenanceCalls = client.query.mock.calls.filter(
+    ([sql, params]) =>
+      sql.includes('INSERT INTO data_provenance (') &&
+      params?.[1] === 'candidate_skills'
+  );
+
+  expect(
+    provenanceCalls.some(([, params]) => params[3] === 'proficiency_level')
+  ).toBe(false);
+
+  expect(result.pendingReviewCount).toBe(1);
+});
   test('should insert a new education item', async () => {
     const result = await writeExtraction({
       userId: 1,
@@ -415,6 +557,124 @@ describe('storage-writer', () => {
     expect(result.education[0].itemId).toBe(25);
     expect(result.education[0].sourceIndex).toBe(0);
   });
+  test('should detect an intra-source conflict between duplicate education items', async () => {
+    const secondEducationItem = {
+      ...educationItem,
+      sourceIndex: 1,
+      fields: {
+        ...educationItem.fields,
+        degree_name: {
+          value: 'MSc',
+          confidence: 0.9,
+          evidence: 'Master of Science'
+        }
+      }
+    };
+
+    const result = await writeExtraction({
+      userId: 1,
+      jobId: 5,
+      mappedData: {
+        profile: {},
+        items: {
+          education: [educationItem, secondEducationItem]
+        }
+      }
+    });
+
+    // Both entries should represent one education record.
+    expect(result.education).toHaveLength(1);
+
+    // The conflicting field should be identified for review.
+    expect(result.reviewCandidates).toHaveLength(1);
+    expect(result.reviewCandidates[0]).toMatchObject({
+      itemType: 'education',
+      itemId: 25,
+      fieldName: 'degree_name'
+    });
+
+    expect(result.reviewCandidates[0].values).toHaveLength(2);
+    expect(
+      result.reviewCandidates[0].values.map((option) => option.wrapper.value)
+    ).toEqual(['BSc', 'MSc']);
+    // A pending conflict should be created.
+    const conflictCall = client.query.mock.calls.find(([sql]) =>
+      sql.includes('INSERT INTO conflicts')
+    );
+    expect(conflictCall).toBeDefined();
+
+    // Both conflicting values should be saved as options.
+    const optionCalls = client.query.mock.calls.filter(([sql]) =>
+      sql.includes('INSERT INTO conflict_options')
+    );
+    expect(optionCalls).toHaveLength(2);
+
+    // One human review should be created for the conflict.
+    const reviewCall = client.query.mock.calls.find(([sql]) =>
+      sql.includes('INSERT INTO human_reviews')
+    );
+    expect(reviewCall).toBeDefined();
+  });
+  it('should reuse an existing pending conflict and add new options', async () => {
+    const secondEducationItem = {
+      ...educationItem,
+      sourceIndex: 1,
+      fields: {
+        ...educationItem.fields,
+        degree_name: {
+          value: 'MSc',
+          confidence: 0.9,
+          evidence: 'Master of Science'
+        }
+      }
+    };
+
+    // Preserve the default mock behavior, but simulate an existing conflict.
+    const defaultQuery = client.query.getMockImplementation();
+
+    client.query.mockImplementation(async (sql, ...params) => {
+      if (sql.includes('FROM conflicts')) {
+        return { rows: [{ id: 777 }], rowCount: 1 };
+      }
+
+      return defaultQuery(sql, ...params);
+    });
+
+    const result = await writeExtraction({
+      userId: 1,
+      jobId: 5,
+      mappedData: {
+        profile: {},
+        items: {
+          education: [educationItem, secondEducationItem]
+        }
+      }
+    });
+
+    // No new conflict should be created.
+    const conflictInsertCalls = client.query.mock.calls.filter(([sql]) =>
+      sql.includes('INSERT INTO conflicts')
+    );
+    expect(conflictInsertCalls).toHaveLength(0);
+
+    // Both new options should be attached to the existing conflict.
+    const optionCalls = client.query.mock.calls.filter(([sql]) =>
+      sql.includes('INSERT INTO conflict_options')
+    );
+
+    expect(optionCalls).toHaveLength(2);
+    expect(optionCalls[0][1][0]).toBe(777);
+    expect(optionCalls[1][1][0]).toBe(777);
+
+    // No duplicate human review should be created.
+    const reviewCalls = client.query.mock.calls.filter(([sql]) =>
+      sql.includes('INSERT INTO human_reviews')
+    );
+    expect(reviewCalls).toHaveLength(0);
+
+    // No new pending review was created.
+    expect(result.pendingReviewCount).toBe(0);
+  });
   it('should update an existing education item by filling null fields only', async () => {
     client.query.mockImplementation(async (sql) => {
       if (sql.includes('FROM users u')) {
@@ -440,8 +700,25 @@ describe('storage-writer', () => {
         return { rows: [{ id: 15 }] };
       }
 
-      if (sql.includes('INSERT INTO data_provenance_sources')) {
-        return { rows: [], rowCount: 1 };
+      if (sql.includes('INSERT INTO conflicts')) {
+        return {
+          rows: [{ id: 501 }],
+          rowCount: 1
+        };
+      }
+
+      if (sql.includes('INSERT INTO conflict_options')) {
+        return {
+          rows: [{ id: 601 }],
+          rowCount: 1
+        };
+      }
+
+      if (sql.includes('INSERT INTO human_reviews')) {
+        return {
+          rows: [{ id: 701 }],
+          rowCount: 1
+        };
       }
 
       if (sql.includes('INSERT INTO data_provenance (')) {
@@ -626,6 +903,59 @@ describe('storage-writer', () => {
     expect(client.query).toHaveBeenCalledWith('COMMIT');
     expect(client.release).toHaveBeenCalled();
   });
+  test('should create a low-confidence review for a work experience field', async () => {
+    const result = await writeExtraction({
+      userId: 1,
+      jobId: 5,
+      mappedData: {
+        profile: {},
+        items: {
+          work_experience: [
+            {
+              ...workExperienceItem,
+              fields: {
+                ...workExperienceItem.fields,
+                location: {
+                  value: 'Nablus',
+                  confidence: 0.3,
+                  evidence: 'Worked in Nablus'
+                }
+              }
+            }
+          ]
+        }
+      }
+    });
+
+    const conflictQuery = client.query.mock.calls.find(([sql]) =>
+      sql.includes('INSERT INTO conflicts')
+    );
+
+    expect(conflictQuery).toBeDefined();
+    expect(conflictQuery[1]).toEqual([10, 'work_experience', '35', 'location']);
+
+    const humanReviewQuery = client.query.mock.calls.find(([sql]) =>
+      sql.includes('INSERT INTO human_reviews')
+    );
+
+    expect(humanReviewQuery).toBeDefined();
+    expect(humanReviewQuery[1]).toEqual([10, 501, 'low_confidence']);
+
+    const optionQuery = client.query.mock.calls.find(([sql]) =>
+      sql.includes('INSERT INTO conflict_options')
+    );
+
+    expect(optionQuery).toBeDefined();
+    expect(optionQuery[1]).toEqual([
+      501,
+      JSON.stringify('Nablus'),
+      20,
+      0.3,
+      'Worked in Nablus'
+    ]);
+
+    expect(result.pendingReviewCount).toBe(1);
+  });
   test('should update an existing work experience item by filling null fields only', async () => {
     client.query.mockImplementation(async (sql) => {
       if (sql.includes('FROM users u')) {
@@ -763,6 +1093,90 @@ describe('storage-writer', () => {
     ]);
 
     expect(result.provenance).toHaveLength(2);
+  });
+  test('should create a pending review for a low-confidence profile field', async () => {
+    const defaultQueryImplementation = client.query.getMockImplementation();
+
+    client.query.mockImplementation(async (sql, params) => {
+      if (sql.includes('UPDATE candidate_profiles')) {
+        return {
+          rows: [
+            {
+              id: 10,
+              first_name: 'Deema',
+              last_name: 'Hamoudeh'
+            }
+          ],
+          rowCount: 1
+        };
+      }
+
+      return defaultQueryImplementation(sql, params);
+    });
+
+    const result = await writeExtraction({
+      userId: 1,
+      jobId: 5,
+      mappedData: {
+        profile: {
+          first_name: {
+            value: 'Deema',
+            confidence: 0.99,
+            evidence: 'Deema Hamoudeh'
+          },
+          last_name: {
+            value: 'Hamoudeh',
+            confidence: 0.98,
+            evidence: 'Deema Hamoudeh'
+          }
+        },
+        items: {}
+      },
+      reviewItems: [
+        {
+          targetType: 'conflict',
+          reviewReason: 'low_confidence',
+          itemType: 'candidate_profile',
+          fieldName: 'phone',
+          options: [
+            {
+              value: '+970123456789',
+              confidence: 0.3,
+              evidence: 'Phone number found in resume'
+            }
+          ]
+        }
+      ]
+    });
+
+    const conflictQuery = client.query.mock.calls.find(([sql]) =>
+      sql.includes('INSERT INTO conflicts')
+    );
+
+    expect(conflictQuery).toBeDefined();
+    expect(conflictQuery[1]).toEqual([10, 'candidate_profile', '10', 'phone']);
+
+    const humanReviewQuery = client.query.mock.calls.find(([sql]) =>
+      sql.includes('INSERT INTO human_reviews')
+    );
+
+    expect(humanReviewQuery).toBeDefined();
+    expect(humanReviewQuery[1]).toEqual([10, 501, 'low_confidence']);
+
+    const optionQuery = client.query.mock.calls.find(([sql]) =>
+      sql.includes('INSERT INTO conflict_options')
+    );
+
+    expect(optionQuery).toBeDefined();
+    expect(optionQuery[1]).toEqual([
+      501,
+      JSON.stringify('+970123456789'),
+      20,
+      0.3,
+      'Phone number found in resume'
+    ]);
+
+    expect(result.pendingReviewCount).toBe(1);
   });
   test('should save processing metadata', async () => {
     await writeExtraction({
