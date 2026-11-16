@@ -13,6 +13,12 @@ const {
 const { listCandidates, getCandidateProfile } = require('./candidates.service');
 const { getCandidateHistory } = require('./history.service');
 const {
+  listUnknownSkills,
+  getUnknownSkillById,
+  searchSkills,
+  resolveUnknownSkill
+} = require('./unknown-skills.service');
+const {
   UploadError,
   processUpload
 } = require('shared/src/upload/upload.service');
@@ -31,11 +37,6 @@ const {
 
 const candidateNotFound = (res) =>
   res.status(404).json({ errors: { candidateId: 'Candidate not found' } });
-  listUnknownSkills,
-  getUnknownSkillById,
-  searchSkills,
-  resolveUnknownSkill
-} = require('./unknown-skills.service');
 
 /**
  * Creates the admin router mounted at /api/admin.
@@ -144,8 +145,6 @@ function createAdminRouter({ getDb, getStorage, enqueueJob, getUploadConfig }) {
   // The "Simera file" section of the candidate page (US-22).
   router.get('/candidates/:id/simera', async (req, res, next) => {
     const validation = validateCandidateId(req.params.id);
-  router.get('/unknown-skills', async (req, res, next) => {
-    const validation = validateListUnknownSkillsQuery(req.query);
     if (!validation.success) {
       return res.status(400).json({ errors: validation.errors });
     }
@@ -156,8 +155,6 @@ function createAdminRouter({ getDb, getStorage, enqueueJob, getUploadConfig }) {
         return candidateNotFound(res);
       }
       return res.status(200).json(section);
-      const result = await listUnknownSkills(getDb(), validation.data);
-      return res.status(200).json(result);
     } catch (error) {
       return next(error);
     }
@@ -166,8 +163,6 @@ function createAdminRouter({ getDb, getStorage, enqueueJob, getUploadConfig }) {
   // "Send Simera file to processing" (US-22): one job for the newest file.
   router.post('/candidates/:id/simera/send', async (req, res, next) => {
     const validation = validateCandidateId(req.params.id);
-  router.get('/unknown-skills/:id', async (req, res, next) => {
-    const validation = validateUnknownSkillId(req.params.id);
     if (!validation.success) {
       return res.status(400).json({ errors: validation.errors });
     }
@@ -191,6 +186,32 @@ function createAdminRouter({ getDb, getStorage, enqueueJob, getUploadConfig }) {
           errors: { [error.field]: error.message },
           reason: error.reason
         });
+      }
+      return next(error);
+    }
+  });
+
+  router.get('/unknown-skills', async (req, res, next) => {
+    const validation = validateListUnknownSkillsQuery(req.query);
+    if (!validation.success) {
+      return res.status(400).json({ errors: validation.errors });
+    }
+
+    try {
+      const result = await listUnknownSkills(getDb(), validation.data);
+      return res.status(200).json(result);
+    } catch (error) {
+      return next(error);
+    }
+  });
+
+  router.get('/unknown-skills/:id', async (req, res, next) => {
+    const validation = validateUnknownSkillId(req.params.id);
+    if (!validation.success) {
+      return res.status(400).json({ errors: validation.errors });
+    }
+
+    try {
       const result = await getUnknownSkillById(getDb(), validation.data);
       if (!result) {
         return res
