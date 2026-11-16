@@ -18,3 +18,11 @@ export const getAdminCandidateProfileApi = async (candidateId) => {
 
   return data;
 };
+// Get candidate history
+export const getCandidateHistoryApi = async (candidateId) => {
+  const { data } = await axiosInstance.get(
+    `/admin/candidates/${candidateId}/history`
+  );
+
+  return data;
+};

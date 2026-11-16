@@ -16,7 +16,7 @@ import CandidateHeader from '../../components/admin/candidate-profile/CandidateH
 import CandidateProfileDetails from '../../components/admin/candidate-profile/CandidateProfileDetails';
 import SectionsList from '../../components/admin/candidate-profile/SectionsList';
 import CandidateFiles from '../../components/admin/candidate-profile/CandidateFiles';
-
+import CandidateHistory from '../../components/admin/candidate-profile/CandidateHistory';
 export default function CandidatesProfile() {
   const { id } = useParams();
 
@@ -113,6 +113,13 @@ export default function CandidatesProfile() {
           </Typography>
 
           <CandidateFiles files={files ?? []} />
+        </Box>
+        <Box>
+          <Typography variant="h6" fontWeight={700} sx={{ mb: 2 }}>
+            Candidate History
+          </Typography>
+
+          <CandidateHistory candidateId={id} />
         </Box>
       </Stack>
     </Container>
