@@ -361,6 +361,7 @@ const row = await recordHumanChange(client, {
 - **No change, no row**: If `previousValue` and `newValue` are equal (both null/undefined, or identical JSON after stable key sorting), returns `null` without writing to the database.
 - **Append-only**: Rows in `human_audit_log` are never updated or deleted. The module exports no update or delete functions.
 - **Validation**: Any invalid parameter throws a `TypeError` and writes nothing.
+
 ## Rules engine (US-16)
 
 The rules engine evaluates differences found between stored candidate data and a newly parsed CV/file (from US-15 diff output) to determine whether changes should be applied automatically (Table B) or escalated to human review (Table C).
@@ -437,6 +438,7 @@ Executes within the caller's transaction (never BEGIN, COMMIT or ROLLBACK):
 
 Loads only pending conflicts for the candidate:
 `[{ conflictId, itemType, itemId, fieldName }]`
+
 ## Compare with stored data (US-15)
 
 Compares a new validated extraction against the candidate's existing stored data (`compareWithStored` in `shared/src/comparison/compare.js`, loaded via `loadStoredCandidate` in `shared/src/comparison/stored-data.js`). First-time files with no existing stored profile or section items return `null` and skip comparison.
@@ -619,3 +621,28 @@ A candidate with no stored data at all (no profile row or an empty profile row a
 - Evaluates `ctx.diff = compareWithStored(...)` and `ctx.storedData`.
 - Performs read-only database queries (no writes).
 - Logs metric counts only: `{ jobId, firstFile, added, differences, uncertain }`.
+
+## Returning candidate merge (US-21)
+
+When a candidate already has stored data in the system (`ctx.storedData !== null`), subsequent uploaded files (CV or LinkedIn profile) are merged with the stored profile in a single atomic database transaction inside `writeExtraction` (`beforeCommit` hook):
+
+- **First-time files (D2)**: When `ctx.storedData === null`, the extraction is stored directly via `writeExtraction` without merge logic.
+- **Reduced mapped data (D3)**: The storage writer receives a reduced dataset to avoid inserting duplicates:
+  - `profile`: `mapped.profile` as-is (Postgres `COALESCE` fills empty candidate fields only, rule A1).
+  - `items`: for each item section, only new items (`sourceIndex` in `diff.added` with `scope: 'item'`). Matched and uncertain items are excluded.
+  - `skills`: `mapped.skills` as-is (inserts new known/unknown skills and fills empty columns).
+  - `processing`: `mapped.processing` as-is.
+- **Atomic transaction (`beforeCommit`, D4)**: `writeExtraction({ userId, jobId, mappedData, reviewItems, beforeCommit })` invokes `beforeCommit(client, { candidateId, fileId, jobId })` immediately before `COMMIT`.
+- **Merge pipeline (`applyMerge`, D5)**:
+  1. _Field fills (A1)_: fills empty fields of matched items (`scope: 'field'`), updates column where `NULL`, and records provenance.
+  2. _Precision upgrades (A3)_: updates column to more precise date; when the column is part of the deduplication key, recomputes `deduplication_key` using `buildDeduplicationKey` in the same statement and updates provenance.
+  3. _Second source provenance_: records an additional source row in `data_provenance_sources` for `identical` or `format_only` unchanged items.
+  4. _Decide & apply latest rules (Table B)_: loads pending conflicts, evaluates `decideLatest(diff, ...)`, replaces diff wrappers with database-ready mapped wrappers, and calls `applyAutomaticDecisions`.
+  5. _Review collection (D6)_: combines decision reviews and uncertain matches (`C3`), and passes them to the injectable `createReviews` hook (US-17).
+- **Changed field count (D7)**: `changed_field_count` accurately reflects:
+  - Fields filled on matched items (D5a).
+  - Precision upgrades applied (D5b).
+  - Automatic decisions applied (D5f).
+  - Non-empty mapped fields in newly inserted items (D3).
+  - Previously empty candidate profile fields filled (A1).
+    _(B1 `is_current` updates are part of the automatic decision and not counted separately)._
