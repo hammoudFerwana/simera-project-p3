@@ -710,7 +710,7 @@ Returns a candidate's complete profile, section items with per-field provenance 
     "work_experience": [
       {
         "id": 1,
-        "months": null,
+        "months": 24,
         "fields": {
           "job_title": { "value": "Software Engineer", "...": "..." },
           "company_name": { "...": "..." }
@@ -761,7 +761,9 @@ Returns a candidate's complete profile, section items with per-field provenance 
       }
     ]
   },
-  "experience": null,
+  "experience": {
+    "totalMonths": 36
+  },
   "files": [
     {
       "id": 5,
@@ -777,6 +779,12 @@ Returns a candidate's complete profile, section items with per-field provenance 
   ]
 }
 ```
+
+**Experience months:**
+
+- `experience.totalMonths`: total months of work experience, with overlapping jobs merged. `0` when the candidate has no countable job.
+- `work_experience[].months`: months of that job, or `null` when its dates cannot be counted (for example no start date).
+- Both are calculated on read with `calculateExperienceMonths` (US-14) and never stored. A year-only start counts from January and a year-only end to December. An ongoing job counts until the current month.
 
 **FieldView shape:**
 
@@ -800,6 +808,93 @@ Every field inside `profile` and each item's `fields` object is returned as a `F
 | `403`  | User does not have admin role          | `{"errors":{"auth":"You do not have access to this resource"}}`        |
 | `404`  | Candidate not found                    | `{"errors":{"candidateId":"Candidate not found"}}`                     |
 | `500`  | Unexpected server error                | `{"errors":{"server":"Something went wrong"}}`                         |
+
+### Human audit log (US-20)
+
+Every human change to candidate data made during review resolution (US-18, US-19) is recorded in `human_audit_log` with the administrator who made it, the timestamp, the previous value, the new value, and an optional reason.
+
+#### `GET /api/admin/candidates/:id/history`
+
+Returns the complete chronological change history for a candidate profile, ordered newest first.
+
+**Authentication:** Requires a valid `access_token` cookie and an `admin` role.
+
+**Request:**
+
+- Path parameters:
+  - `id`: Positive integer (candidate profile ID).
+- No query parameters.
+- No request body.
+
+**Success response (`200`):**
+
+```json
+{
+  "items": [
+    {
+      "id": 1,
+      "itemType": "work_experience",
+      "itemId": "42",
+      "fieldName": "start_date",
+      "previousValue": "2019-05",
+      "newValue": "2019-08",
+      "changedBy": {
+        "adminId": 3,
+        "email": "admin@example.com"
+      },
+      "timestamp": "2026-11-15T12:00:00.000Z",
+      "reason": "Checked the CV"
+    }
+  ]
+}
+```
+
+**Response fields:**
+
+- `items`: Array of change history records, ordered by `timestamp DESC`, then `id DESC`.
+  - `id`: Unique audit log row ID.
+  - `itemType`: Target entity type (`provenance_item_type`).
+  - `itemId`: Target entity record ID (as string).
+  - `fieldName`: Specific field changed.
+  - `previousValue`: Field value before change (deserialized JSON value).
+  - `newValue`: Field value after change (deserialized JSON value).
+  - `changedBy`: Object identifying the administrator:
+    - `adminId`: Administrator ID (`admins.id`).
+    - `email`: Administrator email (`users.email`).
+  - `timestamp`: Timestamp when the change occurred.
+  - `reason`: Optional human-supplied explanation, or `null`.
+
+**Error responses:**
+
+| Status | When                                   | Body                                                                   |
+| ------ | -------------------------------------- | ---------------------------------------------------------------------- |
+| `400`  | Candidate ID is not a positive integer | `{"errors":{"candidateId":"Candidate id must be a positive integer"}}` |
+| `401`  | Not logged in or invalid/expired token | `{"errors":{"auth":"Log in to continue"}}`                             |
+| `403`  | User does not have admin role          | `{"errors":{"auth":"You do not have access to this resource"}}`        |
+| `404`  | Candidate not found                    | `{"errors":{"candidateId":"Candidate not found"}}`                     |
+| `500`  | Unexpected server error                | `{"errors":{"server":"Something went wrong"}}`                         |
+
+#### Shared service contract (`recordHumanChange`)
+
+`shared/src/audit/human-audit.js` exports:
+
+- `recordHumanChange(client, options)`: Records a human change within the caller's transaction.
+  - `client`: Active PostgreSQL transaction client.
+  - `options`:
+    - `candidateId`: Positive integer (`candidate_profiles.id`).
+    - `itemType`: Valid `provenance_item_type` enum value.
+    - `itemId`: Positive integer or digit string (stored as text).
+    - `fieldName`: Non-empty string up to 150 characters.
+    - `previousValue`: Previous value (stored as JSONB).
+    - `newValue`: New value (stored as JSONB).
+    - `changedBy`: Positive integer administrator ID (`admins.id`).
+    - `reason`: Optional text string or `null` (default `null`).
+    - `timestamp`: Optional `Date` instance (default `new Date()`).
+  - **Behavior**:
+    - Equal values (deep comparison after stable key sort, or both null/undefined) write nothing and return `null`.
+    - Otherwise inserts a single row into `human_audit_log` and returns the inserted row.
+    - Invalid parameters throw `TypeError`.
+- `getAdminIdForUser(client, userId)`: Resolves an administrator ID (`admins.id`) for a given user ID (`users.id`), returning the integer ID or `null`.
 
 ## Testing and Code Quality
 

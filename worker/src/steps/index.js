@@ -1,3 +1,4 @@
+const { createExtractTextStep } = require('./extract-text');
 const { createCallLlmStep } = require('./call-llm');
 const { createCheckEmailStep } = require('./check-email');
 const { createNormalizeSkillsStep } = require('./normalize-skills');
@@ -28,6 +29,7 @@ const createStoreStep =
     const reviewItems = [];
 
     const failedChecks = ctx.failedChecks || [];
+
 
     for (const check of failedChecks) {
       if (check.section !== 'candidate') {
@@ -108,9 +110,8 @@ const createStoreStep =
 
     return ctx;
   };
-
 const createSteps = (confidenceThreshold = 0.5) => [
-  stub('extractTextAndLinks'), // US-06
+  createExtractTextStep({ db }), // US-06
   createCheckEmailStep({ db }),
   createCallLlmStep({ db }),
   createNormalizeSkillsStep({ db }), // US-13
