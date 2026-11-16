@@ -3,9 +3,55 @@ const { PermanentError } = require('./errors');
 const {
   buildDeduplicationKey,
   normalizeUrlForStorage,
-  mergeDuplicateItems
+  mergeDuplicateItems,
+  DEDUPLICATION_FIELDS
 } = require('./deduplication');
-const { createReviewItem } = require('./review-items');
+const { createReviewItem, saveReviewItems } = require('./review-items');
+
+function getKeyFields(itemType) {
+  return (
+    DEDUPLICATION_FIELDS[itemType] ||
+    (itemType === 'candidate_languages'
+      ? DEDUPLICATION_FIELDS.languages
+      : null) ||
+    (itemType === 'candidate_links' ? DEDUPLICATION_FIELDS.links : null) ||
+    []
+  );
+}
+
+function splitItemFieldsByConfidence(itemType, item, confidenceThreshold) {
+  const keyFields = new Set(getKeyFields(itemType));
+  const fields = item.fields ?? {};
+  const reviewFields = item.reviewFields ?? {};
+  const savedFields = {};
+  const lowConfidenceFields = [];
+
+  for (const [fieldName, wrapper] of Object.entries(fields)) {
+    const isBelow =
+      wrapper?.value !== null &&
+      wrapper?.value !== undefined &&
+      typeof wrapper.confidence === 'number' &&
+      wrapper.confidence < confidenceThreshold &&
+      typeof wrapper.evidence === 'string' &&
+      wrapper.evidence.trim() !== '' &&
+      !Object.hasOwn(reviewFields, fieldName);
+
+    if (isBelow) {
+      lowConfidenceFields.push({ fieldName, wrapper });
+      if (keyFields.has(fieldName)) {
+        savedFields[fieldName] = wrapper;
+      }
+    } else {
+      savedFields[fieldName] = wrapper;
+    }
+  }
+
+  return {
+    ...item,
+    fields: savedFields,
+    lowConfidenceFields
+  };
+}
 async function saveEducation(client, candidateId, educationItems) {
   const savedItems = [];
 
@@ -99,6 +145,7 @@ async function saveEducation(client, candidateId, educationItems) {
       sourceIndexes: item.sourceIndexes ?? [sourceIndex],
       fields,
       reviewFields: item.reviewFields ?? {},
+      lowConfidenceFields: item.lowConfidenceFields ?? [],
       storedRow: savedItem
     });
   }
@@ -207,6 +254,7 @@ async function saveWorkExperience(client, candidateId, workItems) {
       sourceIndexes: item.sourceIndexes ?? [sourceIndex],
       fields,
       reviewFields: item.reviewFields ?? {},
+      lowConfidenceFields: item.lowConfidenceFields ?? [],
       storedRow: savedItem
     });
   }
@@ -308,6 +356,7 @@ async function saveCertifications(client, candidateId, certificationItems) {
       sourceIndexes: item.sourceIndexes ?? [item.sourceIndex],
       fields,
       reviewFields: item.reviewFields ?? {},
+      lowConfidenceFields: item.lowConfidenceFields ?? [],
       storedRow: savedItem
     });
   }
@@ -387,6 +436,7 @@ async function saveProjects(client, candidateId, projectItems) {
       sourceIndexes: item.sourceIndexes ?? [item.sourceIndex],
       fields,
       reviewFields: item.reviewFields ?? {},
+      lowConfidenceFields: item.lowConfidenceFields ?? [],
       storedRow: savedItem
     });
   }
@@ -454,6 +504,7 @@ async function saveAwards(client, candidateId, awardItems) {
       sourceIndexes: item.sourceIndexes ?? [item.sourceIndex],
       fields,
       reviewFields: item.reviewFields ?? {},
+      lowConfidenceFields: item.lowConfidenceFields ?? [],
       storedRow: savedItem
     });
   }
@@ -524,6 +575,7 @@ async function savePublications(client, candidateId, publicationItems) {
       sourceIndexes: item.sourceIndexes ?? [item.sourceIndex],
       fields,
       reviewFields: item.reviewFields ?? {},
+      lowConfidenceFields: item.lowConfidenceFields ?? [],
       storedRow: savedItem
     });
   }
@@ -605,6 +657,7 @@ async function saveVolunteering(client, candidateId, volunteeringItems) {
       sourceIndexes: item.sourceIndexes ?? [item.sourceIndex],
       fields,
       reviewFields: item.reviewFields ?? {},
+      lowConfidenceFields: item.lowConfidenceFields ?? [],
       storedRow: savedItem
     });
   }
@@ -653,7 +706,10 @@ async function saveLanguages(client, candidateId, languageItems) {
       itemType: 'candidate_languages',
       itemId: savedItem.id,
       sourceIndex: item.sourceIndex,
+      sourceIndexes: item.sourceIndexes ?? [item.sourceIndex],
       fields,
+      reviewFields: item.reviewFields ?? {},
+      lowConfidenceFields: item.lowConfidenceFields ?? [],
       storedRow: savedItem
     });
   }
@@ -702,7 +758,10 @@ async function saveLinks(client, candidateId, linkItems) {
       itemType: 'candidate_links',
       itemId: savedItem.id,
       sourceIndex: item.sourceIndex,
+      sourceIndexes: item.sourceIndexes ?? [item.sourceIndex],
       fields,
+      reviewFields: item.reviewFields ?? {},
+      lowConfidenceFields: item.lowConfidenceFields ?? [],
       storedRow: savedItem
     });
   }
@@ -715,45 +774,44 @@ async function saveSkills(
   { candidateId, fileId, jobId, skills, confidenceThreshold }
 ) {
   const savedSkills = {
-  matched: [],
-  unknown: [],
-  reviewCandidates: []
-};
+    matched: [],
+    unknown: [],
+    reviewCandidates: []
+  };
   const savedProvenance = [];
 
   for (const item of skills.matched) {
     const { skillId, fields } = item;
 
-const safeFields = {};
-const lowConfidenceFields = [];
+    const safeFields = {};
+    const lowConfidenceFields = [];
 
-for (const [fieldName, wrapper] of Object.entries(fields ?? {})) {
-  if (wrapper?.value === null || wrapper?.value === undefined) {
-    continue;
-  }
+    for (const [fieldName, wrapper] of Object.entries(fields ?? {})) {
+      if (wrapper?.value === null || wrapper?.value === undefined) {
+        continue;
+      }
 
-  if (
-    typeof wrapper.confidence === 'number' &&
-    wrapper.confidence < confidenceThreshold
-  ) {
-    if (typeof wrapper.evidence === 'string' && wrapper.evidence.trim()) {
-      lowConfidenceFields.push({
-        fieldName,
-        value: wrapper.value,
-        confidence: wrapper.confidence,
-        evidence: wrapper.evidence
-      });
+      if (
+        typeof wrapper.confidence === 'number' &&
+        wrapper.confidence < confidenceThreshold
+      ) {
+        if (typeof wrapper.evidence === 'string' && wrapper.evidence.trim()) {
+          lowConfidenceFields.push({
+            fieldName,
+            value: wrapper.value,
+            confidence: wrapper.confidence,
+            evidence: wrapper.evidence
+          });
+        }
+
+        continue;
+      }
+
+      safeFields[fieldName] = wrapper;
     }
 
-    continue;
-  }
-
-  safeFields[fieldName] = wrapper;
-}
-
-const proficiencyLevel = safeFields.proficiency_level?.value ?? null;
-const monthsOfExperience =
-  safeFields.months_of_experience?.value ?? null;
+    const proficiencyLevel = safeFields.proficiency_level?.value ?? null;
+    const monthsOfExperience = safeFields.months_of_experience?.value ?? null;
 
     const result = await client.query(
       `INSERT INTO candidate_skills (
@@ -787,18 +845,18 @@ const monthsOfExperience =
     });
 
     savedProvenance.push(...itemProvenance);
-savedSkills.matched.push(savedRow);
+    savedSkills.matched.push(savedRow);
 
-for (const field of lowConfidenceFields) {
-  savedSkills.reviewCandidates.push({
-    itemType: 'candidate_skills',
-    itemId: savedRow.id,
-    fieldName: field.fieldName,
-    value: field.value,
-    confidence: field.confidence,
-    evidence: field.evidence
-  });
-}
+    for (const field of lowConfidenceFields) {
+      savedSkills.reviewCandidates.push({
+        itemType: 'candidate_skills',
+        itemId: savedRow.id,
+        fieldName: field.fieldName,
+        value: field.value,
+        confidence: field.confidence,
+        evidence: field.evidence
+      });
+    }
   }
 
   for (const item of skills.unknown) {
@@ -1161,7 +1219,10 @@ function mergeItemsByDeduplicationKey(itemType, items) {
 
   for (const group of groups.values()) {
     if (group.length === 1) {
-      mergedItems.push(group[0]);
+      mergedItems.push({
+        ...group[0],
+        sourceIndexes: group[0].sourceIndexes ?? [group[0].sourceIndex]
+      });
       continue;
     }
 
@@ -1188,17 +1249,16 @@ function mergeItemsByDeduplicationKey(itemType, items) {
  * @param {number} params.jobId
  * @param {Object} params.mappedData
  * @param {Array} [params.reviewItems]
+ * @param {number} [params.confidenceThreshold]
  * @param {Function} [params.beforeCommit]
- * @param {Object} params.extraction
- * @param {Array} [params.skillResolutions]
  */
 async function writeExtraction({
   userId,
   jobId,
   mappedData,
   reviewItems = [],
-  beforeCommit,
-  confidenceThreshold = 0.5
+  confidenceThreshold = 0.5,
+  beforeCommit
 }) {
   // Validate input before acquiring a database connection.
   if (!Number.isInteger(userId) || userId <= 0) {
@@ -1437,46 +1497,64 @@ async function writeExtraction({
     const educationItems = mergeItemsByDeduplicationKey(
       'education',
       mappedData.items?.education ?? []
+    ).map((item) =>
+      splitItemFieldsByConfidence('education', item, confidenceThreshold)
     );
 
     const workExperienceItems = mergeItemsByDeduplicationKey(
       'work_experience',
       mappedData.items?.work_experience ?? []
+    ).map((item) =>
+      splitItemFieldsByConfidence('work_experience', item, confidenceThreshold)
     );
 
     const certificationItems = mergeItemsByDeduplicationKey(
       'certifications',
       mappedData.items?.certifications ?? []
+    ).map((item) =>
+      splitItemFieldsByConfidence('certifications', item, confidenceThreshold)
     );
 
     const projectItems = mergeItemsByDeduplicationKey(
       'projects',
       mappedData.items?.projects ?? []
+    ).map((item) =>
+      splitItemFieldsByConfidence('projects', item, confidenceThreshold)
     );
 
     const awardItems = mergeItemsByDeduplicationKey(
       'awards',
       mappedData.items?.awards ?? []
+    ).map((item) =>
+      splitItemFieldsByConfidence('awards', item, confidenceThreshold)
     );
 
     const publicationItems = mergeItemsByDeduplicationKey(
       'publications',
       mappedData.items?.publications ?? []
+    ).map((item) =>
+      splitItemFieldsByConfidence('publications', item, confidenceThreshold)
     );
 
     const volunteeringItems = mergeItemsByDeduplicationKey(
       'volunteering',
       mappedData.items?.volunteering ?? []
+    ).map((item) =>
+      splitItemFieldsByConfidence('volunteering', item, confidenceThreshold)
     );
 
     const languageItems = mergeItemsByDeduplicationKey(
       'languages',
       mappedData.items?.languages ?? []
+    ).map((item) =>
+      splitItemFieldsByConfidence('languages', item, confidenceThreshold)
     );
 
     const linkItems = mergeItemsByDeduplicationKey(
       'links',
       mappedData.items?.links ?? []
+    ).map((item) =>
+      splitItemFieldsByConfidence('links', item, confidenceThreshold)
     );
 
     const savedEducationItems = await saveEducation(
@@ -1520,18 +1598,18 @@ async function writeExtraction({
     const savedProvenance = [...savedProfileProvenance];
     let savedSkills = { matched: [], unknown: [], reviewCandidates: [] };
 
-if (mappedData.skills) {
-  const result = await saveSkills(client, {
-    candidateId,
-    fileId,
-    jobId,
-    skills: mappedData.skills,
-    confidenceThreshold
-  });
+    if (mappedData.skills) {
+      const result = await saveSkills(client, {
+        candidateId,
+        fileId,
+        jobId,
+        skills: mappedData.skills,
+        confidenceThreshold
+      });
 
-  savedSkills = result.savedSkills;
-  savedProvenance.push(...result.savedProvenance);
-}
+      savedSkills = result.savedSkills;
+      savedProvenance.push(...result.savedProvenance);
+    }
 
     const allSavedItems = [
       ...savedEducationItems,
@@ -1557,50 +1635,96 @@ if (mappedData.skills) {
     });
 
     const lowConfidenceReviewCandidates = allSavedItems.flatMap((item) => {
-      const fields = item.fields ?? {};
-      const reviewFields = item.reviewFields ?? {};
-
-      return Object.entries(fields)
-        .filter(([fieldName, wrapper]) => {
-          return (
-            wrapper?.value !== null &&
-            wrapper?.value !== undefined &&
-            typeof wrapper.confidence === 'number' &&
-            wrapper.confidence < confidenceThreshold &&
-            typeof wrapper.evidence === 'string' &&
-            wrapper.evidence.trim() !== '' &&
-            !Object.hasOwn(reviewFields, fieldName)
-          );
-        })
-        .map(([fieldName, wrapper]) => ({
-          itemType: item.itemType,
-          itemId: item.itemId,
-          fieldName,
-          value: wrapper.value,
-          confidence: wrapper.confidence,
-          evidence: wrapper.evidence
-        }));
+      return (item.lowConfidenceFields ?? []).map(({ fieldName, wrapper }) => ({
+        itemType: item.itemType,
+        itemId: item.itemId,
+        fieldName,
+        value: wrapper.value,
+        confidence: wrapper.confidence,
+        evidence: wrapper.evidence
+      }));
     });
+
+    const writerSavedItems = {
+      education: savedEducationItems,
+      work_experience: savedWorkExperienceItems,
+      certifications: savedCertificationItems,
+      projects: savedProjectItems,
+      awards: savedAwardItems,
+      publications: savedPublicationItems,
+      volunteering: savedVolunteeringItems,
+      languages: savedLanguageItems,
+      links: savedLinks
+    };
+
+    const callerItems =
+      typeof reviewItems === 'function'
+        ? reviewItems(writerSavedItems) || []
+        : Array.isArray(reviewItems)
+          ? reviewItems
+          : [];
+
+    const resolvedCallerReviews = [];
+    for (const reviewItem of callerItems) {
+      let itemId = reviewItem.itemId;
+      if (
+        !itemId &&
+        reviewItem.section !== undefined &&
+        reviewItem.sourceIndex !== undefined
+      ) {
+        const sec = reviewItem.section;
+        const list =
+          writerSavedItems[sec] ||
+          (sec === 'candidate_languages' ? writerSavedItems.languages : null) ||
+          (sec === 'candidate_links' ? writerSavedItems.links : null) ||
+          [];
+        const match = list.find(
+          (s) =>
+            s.sourceIndexes?.includes(reviewItem.sourceIndex) ||
+            s.sourceIndex === reviewItem.sourceIndex
+        );
+        if (match && match.itemId != null) {
+          itemId = String(match.itemId);
+        } else {
+          console.log({
+            jobId,
+            section: reviewItem.section,
+            reason: 'validation_failure_item_not_found'
+          });
+          continue;
+        }
+      }
+
+      if (itemId != null || reviewItem.itemType === 'candidate_profile') {
+        resolvedCallerReviews.push({
+          ...reviewItem,
+          itemId:
+            reviewItem.itemType === 'candidate_profile'
+              ? String(candidateId)
+              : String(itemId)
+        });
+      }
+    }
 
     const normalizedReviewItems = [
       ...savedSkills.reviewCandidates.map((reviewCandidate) =>
-  createReviewItem({
-    targetType: 'conflict',
-    candidateId,
-    reviewReason: 'low_confidence',
-    itemType: reviewCandidate.itemType,
-    itemId: reviewCandidate.itemId,
-    fieldName: reviewCandidate.fieldName,
-    options: [
-      {
-        value: reviewCandidate.value,
-        sourceFileId: fileId,
-        confidence: reviewCandidate.confidence,
-        evidence: reviewCandidate.evidence
-      }
-    ]
-  })
-),
+        createReviewItem({
+          targetType: 'conflict',
+          candidateId,
+          reviewReason: 'low_confidence',
+          itemType: reviewCandidate.itemType,
+          itemId: reviewCandidate.itemId,
+          fieldName: reviewCandidate.fieldName,
+          options: [
+            {
+              value: reviewCandidate.value,
+              sourceFileId: fileId,
+              confidence: reviewCandidate.confidence,
+              evidence: reviewCandidate.evidence
+            }
+          ]
+        })
+      ),
       ...reviewCandidates.map((reviewCandidate) =>
         createReviewItem({
           targetType: 'conflict',
@@ -1635,14 +1759,11 @@ if (mappedData.skills) {
           ]
         })
       ),
-      ...reviewItems.map((reviewItem) =>
+      ...resolvedCallerReviews.map((reviewItem) =>
         createReviewItem({
           ...reviewItem,
           candidateId,
-          itemId:
-            reviewItem.itemType === 'candidate_profile'
-              ? String(candidateId)
-              : reviewItem.itemId,
+          itemId: reviewItem.itemId,
           options: reviewItem.options?.map((option) => ({
             ...option,
             sourceFileId: option.sourceFileId ?? fileId
@@ -1652,94 +1773,11 @@ if (mappedData.skills) {
     ];
 
     let pendingReviewCount = 0;
-
-    for (const reviewItem of normalizedReviewItems) {
-      // Check whether a pending conflict already exists.
-      const existingConflictResult = await client.query(
-        `SELECT id
-     FROM conflicts
-     WHERE candidate_id = $1
-       AND item_type = $2
-       AND item_id = $3
-       AND field_name = $4
-       AND status = 'pending'
-     ORDER BY id
-     LIMIT 1
-     FOR UPDATE`,
-        [
-          reviewItem.candidateId,
-          reviewItem.itemType,
-          reviewItem.itemId,
-          reviewItem.fieldName
-        ]
-      );
-
-      let conflictId;
-      const existingConflict = existingConflictResult.rows[0];
-
-      if (existingConflict) {
-        // Reuse the existing pending conflict.
-        conflictId = existingConflict.id;
-      } else {
-        // Create a new conflict.
-        const conflictResult = await client.query(
-          `INSERT INTO conflicts (
-         candidate_id,
-         item_type,
-         item_id,
-         field_name,
-         status
-       )
-       VALUES ($1, $2, $3, $4, 'pending')
-       RETURNING id`,
-          [
-            reviewItem.candidateId,
-            reviewItem.itemType,
-            reviewItem.itemId,
-            reviewItem.fieldName
-          ]
-        );
-
-        conflictId = conflictResult.rows[0].id;
-
-        // Create one human review for the new conflict.
-        await client.query(
-          `INSERT INTO human_reviews (
-         candidate_id,
-         review_target_type,
-         item_id,
-         review_reason,
-         review_status,
-         created_at
-       )
-       VALUES ($1, 'conflict', $2, $3, 'pending', CURRENT_TIMESTAMP)`,
-          [reviewItem.candidateId, conflictId, reviewItem.reviewReason]
-        );
-
-        pendingReviewCount += 1;
-      }
-
-      // Add the new options to the conflict (new or existing).
-      for (const option of reviewItem.options) {
-        await client.query(
-          `INSERT INTO conflict_options (
-         conflict_id,
-         value,
-         source_file_id,
-         confidence,
-         evidence
-       )
-       VALUES ($1, $2, $3, $4, $5)`,
-          [
-            conflictId,
-            JSON.stringify(option.value),
-            option.sourceFileId,
-            option.confidence,
-            option.evidence
-          ]
-        );
-      }
-    }
+    const newConflictsCount = await saveReviewItems(
+      client,
+      normalizedReviewItems
+    );
+    pendingReviewCount += newConflictsCount;
 
     for (const item of allSavedItems) {
       const itemProvenance = await saveProvenance(client, {

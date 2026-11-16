@@ -402,82 +402,82 @@ describe('storage-writer', () => {
     expect(result.pendingReviewCount).toBe(1);
   });
   test('should route low-confidence matched skill fields to human review', async () => {
-  const originalMock = client.query.getMockImplementation();
+    const originalMock = client.query.getMockImplementation();
 
-  client.query.mockImplementation(async (sql, params) => {
-    if (sql.includes('INSERT INTO candidate_skills')) {
-      return {
-        rows: [
-          {
-            id: 902,
-            candidate_id: 10,
-            skill_id: 42,
-            proficiency_level: null,
-            months_of_experience: 36
-          }
-        ],
-        rowCount: 1
-      };
-    }
+    client.query.mockImplementation(async (sql, params) => {
+      if (sql.includes('INSERT INTO candidate_skills')) {
+        return {
+          rows: [
+            {
+              id: 902,
+              candidate_id: 10,
+              skill_id: 42,
+              proficiency_level: null,
+              months_of_experience: 36
+            }
+          ],
+          rowCount: 1
+        };
+      }
 
-    return originalMock(sql, params);
-  });
+      return originalMock(sql, params);
+    });
 
-  const result = await writeExtraction({
-    userId: 1,
-    jobId: 5,
-    mappedData: {
-      profile: {},
-      skills: {
-        matched: [
-          {
-            sourceIndex: 0,
-            skillId: 42,
-            fields: {
-              proficiency_level: {
-                value: 'advanced',
-                confidence: 0.3,
-                evidence: 'Advanced Python skills'
-              },
-              months_of_experience: {
-                value: 36,
-                confidence: 0.95,
-                evidence: 'Three years of experience'
+    const result = await writeExtraction({
+      userId: 1,
+      jobId: 5,
+      mappedData: {
+        profile: {},
+        skills: {
+          matched: [
+            {
+              sourceIndex: 0,
+              skillId: 42,
+              fields: {
+                proficiency_level: {
+                  value: 'advanced',
+                  confidence: 0.3,
+                  evidence: 'Advanced Python skills'
+                },
+                months_of_experience: {
+                  value: 36,
+                  confidence: 0.95,
+                  evidence: 'Three years of experience'
+                }
               }
             }
-          }
-        ],
-        unknown: []
+          ],
+          unknown: []
+        }
       }
-    }
+    });
+
+    const skillInsert = client.query.mock.calls.find(([sql]) =>
+      sql.includes('INSERT INTO candidate_skills')
+    );
+
+    expect(skillInsert).toBeDefined();
+    expect(skillInsert[1]).toEqual([10, 42, null, 36]);
+
+    const optionInsert = client.query.mock.calls.find(([sql]) =>
+      sql.includes('INSERT INTO conflict_options')
+    );
+
+    expect(optionInsert).toBeDefined();
+    expect(optionInsert[1]).toContain(JSON.stringify('advanced'));
+
+    const provenanceCalls = client.query.mock.calls.filter(
+      ([sql, params]) =>
+        sql.includes('INSERT INTO data_provenance (') &&
+        params?.[1] === 'candidate_skills'
+    );
+
+    expect(
+      provenanceCalls.some(([, params]) => params[3] === 'proficiency_level')
+    ).toBe(false);
+
+    expect(result.pendingReviewCount).toBe(1);
   });
-
-  const skillInsert = client.query.mock.calls.find(([sql]) =>
-    sql.includes('INSERT INTO candidate_skills')
-  );
-
-  expect(skillInsert).toBeDefined();
-  expect(skillInsert[1]).toEqual([10, 42, null, 36]);
-
-  const optionInsert = client.query.mock.calls.find(([sql]) =>
-    sql.includes('INSERT INTO conflict_options')
-  );
-
-  expect(optionInsert).toBeDefined();
-  expect(optionInsert[1]).toContain(JSON.stringify('advanced'));
-
-  const provenanceCalls = client.query.mock.calls.filter(
-    ([sql, params]) =>
-      sql.includes('INSERT INTO data_provenance (') &&
-      params?.[1] === 'candidate_skills'
-  );
-
-  expect(
-    provenanceCalls.some(([, params]) => params[3] === 'proficiency_level')
-  ).toBe(false);
-
-  expect(result.pendingReviewCount).toBe(1);
-});
   test('should insert a new education item', async () => {
     const result = await writeExtraction({
       userId: 1,
@@ -953,6 +953,18 @@ describe('storage-writer', () => {
       0.3,
       'Worked in Nablus'
     ]);
+
+    const insertWorkQuery = client.query.mock.calls.find(([sql]) =>
+      sql.includes('INSERT INTO work_experience')
+    );
+    expect(insertWorkQuery[1][7]).toBeNull();
+
+    const locationProv = client.query.mock.calls.find(
+      ([sql, params]) =>
+        sql.includes('INSERT INTO data_provenance ') &&
+        params?.[3] === 'location'
+    );
+    expect(locationProv).toBeUndefined();
 
     expect(result.pendingReviewCount).toBe(1);
   });
