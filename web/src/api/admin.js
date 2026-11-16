@@ -1,10 +1,9 @@
-
-import axiosInstance from "./axiosInstance";
+import axiosInstance from './axiosInstance';
 
 // Get paginated admin candidates list with optional filters.
 export const getAdminCandidatesApi = async (params = {}) => {
-  const { data } = await axiosInstance.get("/admin/candidates", {
-    params,
+  const { data } = await axiosInstance.get('/admin/candidates', {
+    params
   });
 
   return data;
@@ -12,9 +11,7 @@ export const getAdminCandidatesApi = async (params = {}) => {
 
 // Get complete profile details for a specific candidate.
 export const getAdminCandidateProfileApi = async (candidateId) => {
-  const { data } = await axiosInstance.get(
-    `/admin/candidates/${candidateId}`
-  );
+  const { data } = await axiosInstance.get(`/admin/candidates/${candidateId}`);
 
   return data;
 };

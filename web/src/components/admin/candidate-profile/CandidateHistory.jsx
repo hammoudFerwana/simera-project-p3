@@ -1,19 +1,22 @@
-
 import {
   Alert,
   Box,
   CircularProgress,
+  Divider,
   Paper,
   Stack,
-  Typography,
-  Divider
+  Typography
 } from '@mui/material';
 
 import useCandidateHistory from '../../../hooks/useCandidateHistory';
+import {
+  formatDateTime,
+  formatLabel,
+  formatValue
+} from '../../../utils/candidateProfile';
 
 export default function CandidateHistory({ candidateId }) {
-  const { data, isLoading, isError, error } =
-    useCandidateHistory(candidateId);
+  const { data, isLoading, isError, error } = useCandidateHistory(candidateId);
 
   if (isLoading) {
     return (
@@ -26,8 +29,7 @@ export default function CandidateHistory({ candidateId }) {
   if (isError) {
     return (
       <Alert severity="error">
-        {error?.response?.data?.message ||
-          'Failed to load candidate history.'}
+        {error?.response?.data?.message || 'Failed to load candidate history.'}
       </Alert>
     );
   }
@@ -56,16 +58,29 @@ export default function CandidateHistory({ candidateId }) {
           }}
         >
           <Stack spacing={1.5}>
-            <Typography fontWeight={700}>
-              {item.fieldName || item.itemType}
-            </Typography>
+            {item.fieldName && (
+              <Typography fontWeight={700}>
+                Field: {formatLabel(item.fieldName)}
+              </Typography>
+            )}
+
+            {item.itemType && (
+              <Typography variant="body2" color="text.secondary">
+                Type: {formatLabel(item.itemType)}
+              </Typography>
+            )}
 
             <Box>
               <Typography variant="caption" color="text.secondary">
                 Previous Value
               </Typography>
-              <Typography sx={{ overflowWrap: 'anywhere' }}>
-                {item.previousValue ?? '—'}
+              <Typography
+                sx={{
+                  overflowWrap: 'anywhere',
+                  whiteSpace: 'pre-wrap'
+                }}
+              >
+                {formatValue(item.previousValue)}
               </Typography>
             </Box>
 
@@ -75,8 +90,13 @@ export default function CandidateHistory({ candidateId }) {
               <Typography variant="caption" color="text.secondary">
                 New Value
               </Typography>
-              <Typography sx={{ overflowWrap: 'anywhere' }}>
-                {item.newValue ?? '—'}
+              <Typography
+                sx={{
+                  overflowWrap: 'anywhere',
+                  whiteSpace: 'pre-wrap'
+                }}
+              >
+                {formatValue(item.newValue)}
               </Typography>
             </Box>
 
@@ -87,15 +107,11 @@ export default function CandidateHistory({ candidateId }) {
             </Typography>
 
             <Typography variant="body2" color="text.secondary">
-              {item.timestamp
-                ? new Date(item.timestamp).toLocaleString()
-                : '—'}
+              {formatDateTime(item.timestamp)}
             </Typography>
 
             {item.reason && (
-              <Typography variant="body2">
-                Reason: {item.reason}
-              </Typography>
+              <Typography variant="body2">Reason: {item.reason}</Typography>
             )}
           </Stack>
         </Paper>

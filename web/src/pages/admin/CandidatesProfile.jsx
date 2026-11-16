@@ -17,6 +17,7 @@ import CandidateProfileDetails from '../../components/admin/candidate-profile/Ca
 import SectionsList from '../../components/admin/candidate-profile/SectionsList';
 import CandidateFiles from '../../components/admin/candidate-profile/CandidateFiles';
 import CandidateHistory from '../../components/admin/candidate-profile/CandidateHistory';
+
 export default function CandidatesProfile() {
   const { id } = useParams();
 
