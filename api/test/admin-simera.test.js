@@ -63,6 +63,10 @@ function createFakeDb() {
     if (text.startsWith('SELECT 1 FROM uploaded_files WHERE file_hash')) {
       return { rows: state.files.filter((f) => f.file_hash === params[0]) };
     }
+    if (text === 'SELECT id FROM candidate_profiles WHERE id = $1 FOR UPDATE') {
+      const exists = CANDIDATE_USERS.some((u) => u.candidateId === params[0]);
+      return { rows: exists ? [{ id: params[0] }] : [] };
+    }
     if (text.startsWith('SELECT 1 FROM candidate_profiles WHERE id')) {
       const exists = CANDIDATE_USERS.some((u) => u.candidateId === params[0]);
       return { rows: exists ? [{ '?column?': 1 }] : [] };
@@ -79,6 +83,12 @@ function createFakeDb() {
         return { rows: [] };
       }
       const job = state.jobs.find((j) => j.file_id === file.id);
+      const otherRunning = state.jobs.some(
+        (j) =>
+          j.file_id !== file.id &&
+          files.some((f) => f.id === j.file_id) &&
+          ['queued', 'processing'].includes(j.status)
+      );
       return {
         rows: [
           {
@@ -91,7 +101,8 @@ function createFakeDb() {
             started_at: null,
             completed_at: null,
             failure_reason: job ? (job.failure_reason ?? null) : null,
-            pending_review_count: null
+            pending_review_count: null,
+            other_simera_running: otherRunning
           }
         ]
       };
@@ -370,6 +381,19 @@ describe('POST /api/admin/simera-files', () => {
     });
   });
 
+  test('a candidate cannot use the simera_profile slot of the candidate upload', async () => {
+    const response = await request(app)
+      .post('/api/uploads/simera_profile')
+      .set('Cookie', candidateCookie())
+      .attach('file', simeraJson('jane.doe@example.com'), 'simera.json');
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({
+      errors: { sourceType: 'Upload type must be one of: cv, linkedin' }
+    });
+    expectNothingStored();
+  });
+
   test('a candidate cannot upload a Simera file', async () => {
     const response = await uploadSimera(
       simeraJson('jane.doe@example.com'),
@@ -442,17 +466,13 @@ describe('GET /api/admin/candidates/:id/simera', () => {
 
   test.each([
     ['completed', 'completed'],
-    ['completed_with_review', 'completed'],
-    ['failed', 'failed']
+    ['completed_with_review', 'completed']
   ])(
     'a finished job (%s): "%s" and the button is disabled as already sent',
     async (jobStatus, sectionStatus) => {
       await uploadSimera(simeraJson('jane.doe@example.com'));
       await send(10);
       db.state.jobs[0].status = jobStatus;
-      if (jobStatus === 'failed') {
-        db.state.jobs[0].failure_reason = 'Maximum attempts reached';
-      }
 
       const response = await getSection(10);
 
@@ -462,13 +482,59 @@ describe('GET /api/admin/candidates/:id/simera', () => {
         canSend: false,
         disabledReason: 'This Simera file was already sent to processing'
       });
-      if (jobStatus === 'failed') {
-        expect(response.body.job.failureReason).toBe(
-          'Maximum attempts reached'
-        );
-      }
     }
   );
+
+  test('a failed job: "failed", its reason, and the button says to upload a corrected file', async () => {
+    await uploadSimera(simeraJson('jane.doe@example.com'));
+    await send(10);
+    db.state.jobs[0].status = 'failed';
+    db.state.jobs[0].failure_reason = 'Maximum attempts reached';
+
+    const response = await getSection(10);
+
+    expect(response.body).toMatchObject({
+      status: 'failed',
+      job: {
+        id: 1,
+        status: 'failed',
+        failureReason: 'Maximum attempts reached'
+      },
+      canSend: false,
+      disabledReason: 'Processing failed. Upload a corrected Simera file'
+    });
+  });
+
+  test('v1 still running and v2 uploaded: v2 is not_sent but the button is disabled', async () => {
+    await uploadSimera(simeraJson('jane.doe@example.com'), 'v1.json');
+    await send(10);
+    db.state.jobs[0].status = 'processing';
+    await uploadSimera(
+      simeraJson('jane.doe@example.com', { city: 'Nablus' }),
+      'v2.json'
+    );
+
+    const response = await getSection(10);
+
+    expect(response.body).toMatchObject({
+      file: { id: 2, name: 'v2.json' },
+      job: null,
+      status: 'not_sent',
+      canSend: false,
+      disabledReason: 'Another Simera file of this candidate is being processed'
+    });
+  });
+
+  test('an unknown job status is a 500, never shown as completed', async () => {
+    await uploadSimera(simeraJson('jane.doe@example.com'));
+    await send(10);
+    db.state.jobs[0].status = 'archived';
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    const response = await getSection(10);
+
+    expect(response.status).toBe(500);
+  });
 
   test('an unknown candidate is a 404', async () => {
     const response = await getSection(12345);
@@ -544,7 +610,7 @@ describe('POST /api/admin/candidates/:id/simera/send', () => {
     expect(enqueueJob).toHaveBeenCalledTimes(1);
   });
 
-  test.each(['completed', 'completed_with_review', 'failed'])(
+  test.each(['completed', 'completed_with_review'])(
     'after the file was sent (%s): clicking again creates nothing',
     async (status) => {
       await uploadSimera(simeraJson('jane.doe@example.com'));
@@ -562,6 +628,51 @@ describe('POST /api/admin/candidates/:id/simera/send', () => {
       expect(enqueueJob).toHaveBeenCalledTimes(1);
     }
   );
+
+  test('after the job failed: refused, never rerun', async () => {
+    await uploadSimera(simeraJson('jane.doe@example.com'));
+    await send(10);
+    db.state.jobs[0].status = 'failed';
+
+    const response = await send(10);
+
+    expect(response.status).toBe(409);
+    expect(response.body).toEqual({
+      errors: { simera: 'Processing failed. Upload a corrected Simera file' },
+      reason: 'simera_failed'
+    });
+    expect(db.state.jobs).toHaveLength(1);
+    expect(enqueueJob).toHaveBeenCalledTimes(1);
+  });
+
+  test('v2 cannot be sent while v1 runs; it can once v1 has finished', async () => {
+    await uploadSimera(simeraJson('jane.doe@example.com'), 'v1.json');
+    await send(10);
+    await uploadSimera(
+      simeraJson('jane.doe@example.com', { city: 'Nablus' }),
+      'v2.json'
+    );
+
+    for (const status of ['queued', 'processing']) {
+      db.state.jobs[0].status = status;
+      const refused = await send(10);
+
+      expect(refused.status).toBe(409);
+      expect(refused.body).toEqual({
+        errors: {
+          simera: 'Another Simera file of this candidate is being processed'
+        },
+        reason: 'simera_processing'
+      });
+      expect(db.state.jobs).toHaveLength(1);
+    }
+
+    db.state.jobs[0].status = 'completed';
+    const response = await send(10);
+
+    expect(response.status).toBe(202);
+    expect(response.body).toMatchObject({ fileId: 2, jobId: 2 });
+  });
 
   test('two clicks at the same time create one job', async () => {
     await uploadSimera(simeraJson('jane.doe@example.com'));

@@ -49,8 +49,9 @@ function extractFromMarkdown(buffer) {
 }
 
 function extractFromJson(buffer) {
-  // The raw JSON text is the file text (Simera file, US-22). It must parse,
-  // but it is kept exactly as written so evidence can be found in it.
+  // The raw JSON text is the file text (Simera file, US-22): keys, quotes and
+  // values stay in it. It must parse, but it is not reformatted here; the
+  // hash uses normalizeText like every other format.
   if (parseJsonText(buffer) === undefined) {
     throw new Error('JSON file is not valid UTF-8 JSON');
   }

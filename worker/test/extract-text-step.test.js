@@ -197,6 +197,47 @@ describe('worker/src/steps/extract-text.js (step 1)', () => {
     expect(result.loginEmail).toBe('jane.doe@example.com');
   });
 
+  test('a Simera JSON with a second email (contact_email) still passes the email check', async () => {
+    // The top-level email is the login email (the upload checks it); any
+    // other address in the file does not fail the job.
+    await fs.promises.writeFile(
+      path.join(tempDir, 'simera-two-emails.json'),
+      JSON.stringify(
+        {
+          email: 'jane.doe@example.com',
+          contact_email: 'jane.work@acme.example',
+          first_name: 'Jane',
+          headline: 'Senior Software Engineer'
+        },
+        null,
+        2
+      )
+    );
+    const db = {
+      query: jest.fn(async (sql) =>
+        sql.includes('uploaded_files')
+          ? {
+              rows: [
+                {
+                  storage_location: 'simera-two-emails.json',
+                  mime_type: MIME_TYPES.json
+                }
+              ]
+            }
+          : { rows: [{ email: 'jane.doe@example.com' }] }
+      )
+    };
+    const ctx = { jobId: 13, fileId: 113, candidateId: 10, userId: 1 };
+
+    const result = await runSteps(ctx, [
+      createExtractTextStep({ db, getStorage: () => storage }),
+      createCheckEmailStep({ db })
+    ]);
+
+    expect(result.text).toContain('jane.work@acme.example');
+    expect(result.loginEmail).toBe('jane.doe@example.com');
+  });
+
   test('mime_type "image/png": PermanentError "Unsupported file type"', async () => {
     const db = createFakeDb({
       storage_location: 'cv-links.pdf',

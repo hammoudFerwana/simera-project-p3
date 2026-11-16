@@ -14,7 +14,7 @@ const {
   receiveFile,
   sendFileFieldError,
   sendUploadError
-} = require('../upload/upload.routes');
+} = require('../upload/upload.middleware');
 const {
   SOURCE_TYPE: SIMERA_SOURCE_TYPE,
   SimeraSendError,
@@ -31,10 +31,10 @@ const candidateNotFound = (res) =>
  *
  * @param {object} deps
  * @param {() => object} deps.getDb - returns the pg Pool
- * @param {() => object} [deps.getStorage] - returns the raw file storage
- * @param {(jobId: number) => Promise<void>} [deps.enqueueJob] - sends a job
- *   id to the queue
- * @param {() => object} [deps.getUploadConfig] - returns the upload settings
+ * @param {() => object} deps.getStorage - returns the raw file storage
+ * @param {(jobId: number) => Promise<void>} deps.enqueueJob - sends a job id
+ *   to the queue
+ * @param {() => object} deps.getUploadConfig - returns the upload settings
  * @returns {express.Router}
  */
 function createAdminRouter({ getDb, getStorage, enqueueJob, getUploadConfig }) {
@@ -105,9 +105,7 @@ function createAdminRouter({ getDb, getStorage, enqueueJob, getUploadConfig }) {
     try {
       const result = await getCandidateProfile(getDb(), validation.data);
       if (!result) {
-        return res
-          .status(404)
-          .json({ errors: { candidateId: 'Candidate not found' } });
+        return candidateNotFound(res);
       }
       return res.status(200).json(result);
     } catch (error) {
@@ -124,9 +122,7 @@ function createAdminRouter({ getDb, getStorage, enqueueJob, getUploadConfig }) {
     try {
       const result = await getCandidateHistory(getDb(), validation.data);
       if (!result) {
-        return res
-          .status(404)
-          .json({ errors: { candidateId: 'Candidate not found' } });
+        return candidateNotFound(res);
       }
       return res.status(200).json(result);
     } catch (error) {

@@ -13,6 +13,7 @@ const {
   SOURCE_FORMATS
 } = require('./file-types');
 const { MAX_FILE_SIZE_BYTES } = require('./upload.config');
+const { createProcessingJob } = require('./processing-jobs');
 
 const UNIQUE_VIOLATION = '23505';
 const FILENAME_MAX_LENGTH = 500;
@@ -128,14 +129,8 @@ async function insertRows(db, row, createJob, logger) {
 
     let jobId = null;
     if (createJob) {
-      // Status keeps its default ('queued'); the worker fills the rest.
-      const jobResult = await client.query(
-        `INSERT INTO processing_jobs (file_id, created_at)
-        VALUES ($1, CURRENT_TIMESTAMP)
-        RETURNING id`,
-        [fileId]
-      );
-      jobId = jobResult.rows[0].id;
+      // The file row is new, so it has no job yet and an id always comes back.
+      jobId = await createProcessingJob(client, fileId);
     }
 
     await client.query('COMMIT');
@@ -187,7 +182,7 @@ async function removeRawFile(storage, storageLocation, logger) {
  * A rejected file leaves nothing behind: no raw file, no row, no job.
  * Once the rows are committed the upload is accepted, even if sending the job
  * to the queue fails: the job stays 'queued' in processing_jobs (the durable
- * record) and the failure is logged.
+ * record), the failure is logged, and the worker's sweep sends it later.
  *
  * @param {object} deps
  * @param {{ query: Function, connect: Function }} deps.db pg Pool
@@ -294,8 +289,8 @@ async function processUpload(
     try {
       await enqueueJob(ids.jobId);
     } catch (error) {
-      // The file is saved and its job row stays 'queued'; it still has to be
-      // sent to the queue later (see README, "Queue dependency").
+      // The file is saved and its job row stays 'queued'; the worker's
+      // periodic sweep sends it to the queue later.
       logger.error(`Sending job ${ids.jobId} to the queue failed`, error.stack);
     }
   }

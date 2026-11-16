@@ -2,8 +2,9 @@
  * Uploads Simera JSON files (US-22) through the admin endpoint
  * POST /api/admin/simera-files, the same way the dev team would.
  *
- * Usage (the API must be running):
+ * Usage (the API must be running; Node 22, which has fetch and FormData):
  *   npm run simera:upload --workspace=api -- <file.json> [more.json ...]
+ * File paths are relative to the folder the command is run from.
  *
  * Settings, read from the repository .env:
  *   ADMIN_EMAIL, ADMIN_PASSWORD  the admin account (required)
@@ -97,12 +98,12 @@ async function main() {
   const cookie = await loginAsAdmin();
   let failed = 0;
   for (const file of files) {
-    // npm runs workspace scripts from the workspace folder; paths given from
-    // the repository root are resolved from there too.
-    const resolved = [path.resolve(file), path.resolve('..', file)].find(
-      (candidate) => fs.existsSync(candidate)
+    // npm runs workspace scripts from the workspace folder; INIT_CWD is the
+    // folder the command was typed in, so paths are relative to it.
+    const ok = await uploadFile(
+      cookie,
+      path.resolve(process.env.INIT_CWD || '.', file)
     );
-    const ok = await uploadFile(cookie, resolved || path.resolve(file));
     if (!ok) failed += 1;
   }
   process.exit(failed > 0 ? 1 : 0);

@@ -455,7 +455,7 @@ JOIN processing_jobs j ON j.file_id = f.id
 ORDER BY f.id DESC;
 ```
 
-**Queue dependency:** sending the job needs `shared/src/queue.js` (`startBoss`, `enqueueJob`) from US-05. Once the rows are committed the upload is accepted (`202`), even if sending the job fails: the job stays `queued` in `processing_jobs` and the API logs `Sending job <id> to the queue failed`. Until US-05 is merged every real upload ends this way (the log shows `Cannot find module 'shared/src/queue'`). Such a job is processed only after it's sent to the queue, so US-05 must send every `queued` job that isn't in pg-boss yet (for example at worker startup, using the job id as the pg-boss singleton key so it's never queued twice). The tests use a fake queue and don't need it.
+**Queue dependency:** sending the job uses `enqueueJob` from `shared/src/queue.js` (pg-boss). Once the rows are committed the upload is accepted (`202`), even if sending the job fails: the job stays `queued` in `processing_jobs` and the API logs `Sending job <id> to the queue failed`. The worker sends such a job later: every `queued`/`processing` job at startup, and every minute a sweep sends `queued` jobs that have no live pg-boss job (see [worker/README.md](worker/README.md)). The tests use a fake queue and don't need it.
 
 Run the upload tests (no database, no queue needed; sample files are in `api/test/fixtures/`):
 
@@ -905,7 +905,7 @@ The Simera file is a JSON that simulates a candidate already registered on the S
 - The Latest order counts from the click: the job is created then, and jobs of the same candidate run in creation order.
 - No source is preferred: Simera data is compared with the stored data like any other file.
 
-**The JSON** must be an object with the candidate's login email in a top-level `"email"` string. Every other field is free; the LLM extracts it like a CV. Demo files are in `api/scripts/simera-demo/`.
+**The JSON** must be an object with the candidate's login email in a top-level `"email"` string. Every other field is free; the LLM extracts it like a CV. Demo files are in `api/scripts/simera-demo/`. The test fixture `shared/test/fixtures/simera-profile.json` deliberately uses other field names (`experience`, `title`, a `links` object…): there's no fixed Simera schema, and both shapes must work.
 
 ```json
 {
@@ -964,34 +964,38 @@ The "Simera file" section of the candidate page: the candidate's **newest** Sime
 }
 ```
 
-| Situation                                           | `status`     | `job`  | `canSend` | `disabledReason`                                  |
-| --------------------------------------------------- | ------------ | ------ | --------- | ------------------------------------------------- |
-| No Simera file (`file: null`)                       | `null`       | `null` | `false`   | "No Simera file exists for this candidate"        |
-| File, not sent yet                                  | `not_sent`   | `null` | `true`    | `null`                                            |
-| Job `queued` or `processing`                        | `processing` | object | `false`   | "This Simera file is being processed"             |
-| Job `completed` or `completed_with_review`          | `completed`  | object | `false`   | "This Simera file was already sent to processing" |
-| Job `failed` (see `job.failureReason`; never rerun) | `failed`     | object | `false`   | "This Simera file was already sent to processing" |
+| Situation                                                                         | `status`     | `job`  | `canSend` | `disabledReason`                                           |
+| --------------------------------------------------------------------------------- | ------------ | ------ | --------- | ---------------------------------------------------------- |
+| No Simera file (`file: null`)                                                     | `null`       | `null` | `false`   | "No Simera file exists for this candidate"                 |
+| File, not sent yet                                                                | `not_sent`   | `null` | `true`    | `null`                                                     |
+| File not sent, but an older Simera file of the candidate is `queued`/`processing` | `not_sent`   | `null` | `false`   | "Another Simera file of this candidate is being processed" |
+| Job `queued` or `processing`                                                      | `processing` | object | `false`   | "This Simera file is being processed"                      |
+| Job `completed` or `completed_with_review`                                        | `completed`  | object | `false`   | "This Simera file was already sent to processing"          |
+| Job `failed` (see `job.failureReason`; never rerun)                               | `failed`     | object | `false`   | "Processing failed. Upload a corrected Simera file"        |
 
-`job.status` is the internal status. Errors: `400` bad id, `401`, `403`, `404` `errors.candidateId`: "Candidate not found".
+`job.status` is the internal status. Every internal status is mapped explicitly; an unknown one is a `500`, never shown as completed. Errors: `400` bad id, `401`, `403`, `404` `errors.candidateId`: "Candidate not found".
 
 #### `POST /api/admin/candidates/:id/simera/send`
 
-"Send Simera file to processing". **Admin only.** No body. Creates the one job of the candidate's newest Simera file and sends it to the queue. A second click, or two admins at once, never creates a second job (`processing_jobs.file_id` is unique). If sending to the queue fails, the click is still accepted: the job stays `queued` and the worker sends it at startup.
+"Send Simera file to processing". **Admin only.** No body. Creates the one job of the candidate's newest Simera file and sends it to the queue. It's refused while any Simera job of the candidate is `queued` or `processing`. The check and the insert run in one transaction that locks the candidate row, so clicks at the same time (two admins, or a double click) are decided one after the other; `processing_jobs.file_id` is unique as a second guard. If sending to the queue fails, the click is still accepted: the job stays `queued` and the worker's sweep sends it within about a minute (see [worker/README.md](worker/README.md)).
 
-| Status | `reason`              | When                         | Body                                                                       |
-| ------ | --------------------- | ---------------------------- | -------------------------------------------------------------------------- |
-| `202`  |                       | Job created                  | `{ "message": "Simera file sent to processing", "fileId": 5, "jobId": 9 }` |
-| `400`  |                       | Bad candidate id             | `errors.candidateId`: "Candidate id must be a positive integer"            |
-| `401`  |                       | Not logged in                | `errors.auth`: "Log in to continue"                                        |
-| `403`  |                       | Not an admin                 | `errors.auth`: "You do not have access to this resource"                   |
-| `404`  |                       | No such candidate            | `errors.candidateId`: "Candidate not found"                                |
-| `409`  | `no_simera_file`      | No Simera file               | `errors.simera`: "No Simera file exists for this candidate"                |
-| `409`  | `simera_processing`   | Its job is still running     | `errors.simera`: "This Simera file is being processed"                     |
-| `409`  | `simera_already_sent` | Already sent (any end state) | `errors.simera`: "This Simera file was already sent to processing"         |
+| Status | `reason`              | When                                                              | Body                                                                                                                |
+| ------ | --------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `202`  |                       | Job created                                                       | `{ "message": "Simera file sent to processing", "fileId": 5, "jobId": 9 }`                                          |
+| `400`  |                       | Bad candidate id                                                  | `errors.candidateId`: "Candidate id must be a positive integer"                                                     |
+| `401`  |                       | Not logged in                                                     | `errors.auth`: "Log in to continue"                                                                                 |
+| `403`  |                       | Not an admin                                                      | `errors.auth`: "You do not have access to this resource"                                                            |
+| `404`  |                       | No such candidate                                                 | `errors.candidateId`: "Candidate not found"                                                                         |
+| `409`  | `no_simera_file`      | No Simera file                                                    | `errors.simera`: "No Simera file exists for this candidate"                                                         |
+| `409`  | `simera_processing`   | Its job, or another Simera job of the candidate, is still running | `errors.simera`: "This Simera file is being processed" / "Another Simera file of this candidate is being processed" |
+| `409`  | `simera_already_sent` | Already sent and completed                                        | `errors.simera`: "This Simera file was already sent to processing"                                                  |
+| `409`  | `simera_failed`       | Its job failed (never rerun)                                      | `errors.simera`: "Processing failed. Upload a corrected Simera file"                                                |
 
 #### Try it
 
-With the API (and the worker, to process the job) running, and the sample candidate seeded (`npm run seed:candidates --workspace=shared`, email `john.doe@simera.local`):
+With the API (and the worker, to process the job) running.
+
+**The demo files' top-level `email` must belong to a candidate who is registered and has verified their email in your dev database**, otherwise the upload is rejected with `422`. Either register and verify a candidate yourself and put that email in the files, or seed the sample candidate (`npm run seed:candidates --workspace=shared`, already verified) and use `john.doe@simera.local`. File paths given to the script are relative to the folder you run it from (Node 22).
 
 ```bash
 # Upload demo files as the dev team (logs in with ADMIN_EMAIL / ADMIN_PASSWORD from .env;
@@ -1011,10 +1015,11 @@ curl -i -b admin-cookies.txt -X POST http://localhost:3000/api/admin/candidates/
 
 > **Known dependency:** comparing with the stored data and applying the Latest rules (for example a different Simera city handled by rule B2) needs the compare step to be wired into the worker (US-17). Until then that step is a stub, as for every other source.
 
-Run the tests (no database or queue needed):
+Run the tests. `admin-simera.test.js` needs no database or queue; `admin-simera-db.test.js` runs the send button on the real `simera_test` database (`TEST_DATABASE_URL`), including clicks at the same time:
 
 ```bash
 npm test -- api/test/admin-simera.test.js --verbose
+npm test -- api/test/admin-simera-db.test.js --verbose
 ```
 
 ## Testing and Code Quality

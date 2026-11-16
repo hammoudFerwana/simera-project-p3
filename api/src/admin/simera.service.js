@@ -6,17 +6,53 @@
  *   job. The candidate is the registered, verified user whose email is the
  *   JSON's top-level "email".
  * - Section: the newest Simera file of the candidate and its status.
- * - Send: exactly one job for that file (processing_jobs.file_id is unique).
+ * - Send: exactly one job for that file (processing_jobs.file_id is unique),
+ *   and never while another Simera job of the candidate is running.
  */
 
 const { UploadError } = require('shared/src/upload/upload.service');
+const { createProcessingJob } = require('shared/src/upload/processing-jobs');
 
 const SOURCE_TYPE = 'simera_profile';
 
-const DISABLED_REASONS = {
-  noFile: 'No Simera file exists for this candidate',
-  processing: 'This Simera file is being processed',
-  alreadySent: 'This Simera file was already sent to processing'
+/** Why the send button is disabled: the shown message and the 409 reason. */
+const DISABLED = {
+  noFile: {
+    reason: 'no_simera_file',
+    message: 'No Simera file exists for this candidate'
+  },
+  processing: {
+    reason: 'simera_processing',
+    message: 'This Simera file is being processed'
+  },
+  otherProcessing: {
+    reason: 'simera_processing',
+    message: 'Another Simera file of this candidate is being processed'
+  },
+  alreadySent: {
+    reason: 'simera_already_sent',
+    message: 'This Simera file was already sent to processing'
+  },
+  failed: {
+    reason: 'simera_failed',
+    message: 'Processing failed. Upload a corrected Simera file'
+  }
+};
+
+const DISABLED_REASONS = Object.fromEntries(
+  Object.entries(DISABLED).map(([key, { message }]) => [key, message])
+);
+
+/**
+ * Every internal job status mapped to the section status and the reason the
+ * button is disabled. A status missing here is a bug, never "completed".
+ */
+const JOB_STATUSES = {
+  queued: { status: 'processing', disabled: 'processing' },
+  processing: { status: 'processing', disabled: 'processing' },
+  completed: { status: 'completed', disabled: 'alreadySent' },
+  completed_with_review: { status: 'completed', disabled: 'alreadySent' },
+  failed: { status: 'failed', disabled: 'failed' }
 };
 
 /** Expected refusal of the send button, sent as { errors, reason }. */
@@ -103,21 +139,26 @@ function createSimeraCandidateResolver(db) {
 }
 
 /**
- * The section state from the newest Simera file row (or none).
+ * The section state from the newest Simera file row (or none), with the key
+ * of DISABLED that blocks the button (null when it can be sent).
  *
  * Statuses: not_sent (no job), processing (queued, processing), completed
- * (completed, completed_with_review), failed. Only not_sent can be sent:
+ * (completed, completed_with_review), failed. Only not_sent can be sent, and
+ * only while no other Simera job of the candidate is queued or processing:
  * one job per file, and a failed job is never rerun.
  */
-function buildSection(candidateId, row) {
+function describeSection(candidateId, row) {
   if (!row) {
     return {
-      candidateId,
-      file: null,
-      job: null,
-      status: null,
-      canSend: false,
-      disabledReason: DISABLED_REASONS.noFile
+      disabledKey: 'noFile',
+      section: {
+        candidateId,
+        file: null,
+        job: null,
+        status: null,
+        canSend: false,
+        disabledReason: DISABLED.noFile.message
+      }
     };
   }
 
@@ -129,43 +170,51 @@ function buildSection(candidateId, row) {
   };
 
   if (row.job_id == null) {
+    const disabledKey = row.other_simera_running ? 'otherProcessing' : null;
     return {
-      candidateId,
-      file,
-      job: null,
-      status: 'not_sent',
-      canSend: true,
-      disabledReason: null
+      disabledKey,
+      section: {
+        candidateId,
+        file,
+        job: null,
+        status: 'not_sent',
+        canSend: disabledKey === null,
+        disabledReason: disabledKey ? DISABLED[disabledKey].message : null
+      }
     };
   }
 
-  let status;
-  let disabledReason = DISABLED_REASONS.alreadySent;
-  if (['queued', 'processing'].includes(row.job_status)) {
-    status = 'processing';
-    disabledReason = DISABLED_REASONS.processing;
-  } else if (row.job_status === 'failed') {
-    status = 'failed';
-  } else {
-    status = 'completed';
+  const mapped = JOB_STATUSES[row.job_status];
+  if (!mapped) {
+    throw new Error(
+      `Unknown processing job status "${row.job_status}" for job ${row.job_id}`
+    );
   }
 
   return {
-    candidateId,
-    file,
-    job: {
-      id: row.job_id,
-      status: row.job_status,
-      createdAt: row.job_created_at,
-      startedAt: row.started_at,
-      completedAt: row.completed_at,
-      failureReason: row.failure_reason,
-      pendingReviewCount: row.pending_review_count
-    },
-    status,
-    canSend: false,
-    disabledReason
+    disabledKey: mapped.disabled,
+    section: {
+      candidateId,
+      file,
+      job: {
+        id: row.job_id,
+        status: row.job_status,
+        createdAt: row.job_created_at,
+        startedAt: row.started_at,
+        completedAt: row.completed_at,
+        failureReason: row.failure_reason,
+        pendingReviewCount: row.pending_review_count
+      },
+      status: mapped.status,
+      canSend: false,
+      disabledReason: DISABLED[mapped.disabled].message
+    }
   };
+}
+
+/** The section object only (see describeSection). */
+function buildSection(candidateId, row) {
+  return describeSection(candidateId, row).section;
 }
 
 /** @returns {Promise<boolean>} whether the candidate profile exists */
@@ -177,7 +226,10 @@ async function candidateExists(db, candidateId) {
   return rows.length > 0;
 }
 
-/** The newest Simera file of the candidate with its job, if any. */
+/**
+ * The newest Simera file of the candidate with its job, if any, and whether
+ * another Simera file of the candidate is still queued or processing.
+ */
 async function findLatestSimeraFile(db, candidateId) {
   const { rows } = await db.query(
     `SELECT
@@ -190,7 +242,16 @@ async function findLatestSimeraFile(db, candidateId) {
       pj.started_at,
       pj.completed_at,
       pj.failure_reason,
-      pj.pending_review_count
+      pj.pending_review_count,
+      EXISTS (
+        SELECT 1
+        FROM uploaded_files other
+        JOIN processing_jobs other_job ON other_job.file_id = other.id
+        WHERE other.candidate_id = uf.candidate_id
+          AND other.source_type = uf.source_type
+          AND other.id <> uf.id
+          AND other_job.status IN ('queued', 'processing')
+      ) AS other_simera_running
     FROM uploaded_files uf
     LEFT JOIN processing_jobs pj ON pj.file_id = uf.id
     WHERE uf.candidate_id = $1
@@ -217,11 +278,16 @@ async function getSimeraSection(db, candidateId) {
 
 /**
  * "Send Simera file to processing": creates the one job of the candidate's
- * newest Simera file, then sends it to the queue once. A failed send is
- * logged and the job stays 'queued'; the worker sends it at startup.
+ * newest Simera file, then sends it to the queue once.
+ *
+ * The check and the insert run in one transaction that locks the candidate
+ * row, so two clicks at the same time (or two admins, or a v1 and a v2 click)
+ * are decided one after the other. The unique file_id is a second guard.
+ * A failed send to the queue is logged and the job stays 'queued'; the
+ * worker's periodic sweep sends it.
  *
  * @param {object} deps
- * @param {{ query: Function }} deps.db
+ * @param {{ connect: Function }} deps.db pg Pool
  * @param {(jobId: number) => Promise<void>} deps.enqueueJob
  * @param {{ error: Function }} [deps.logger]
  * @param {number} candidateId
@@ -233,47 +299,65 @@ async function sendSimeraFile(
   { db, enqueueJob, logger = console },
   candidateId
 ) {
-  const section = await getSimeraSection(db, candidateId);
-  if (!section) {
-    return null;
-  }
-  if (!section.canSend) {
-    throw new SimeraSendError({
-      status: 409,
-      reason: !section.file
-        ? 'no_simera_file'
-        : section.status === 'processing'
-          ? 'simera_processing'
-          : 'simera_already_sent',
-      message: section.disabledReason
-    });
-  }
-
-  // A second click (or two admins at once) hits the unique file_id and
-  // creates nothing.
-  const { rows } = await db.query(
-    `INSERT INTO processing_jobs (file_id, created_at)
-    VALUES ($1, CURRENT_TIMESTAMP)
-    ON CONFLICT (file_id) DO NOTHING
-    RETURNING id`,
-    [section.file.id]
-  );
-  if (rows.length === 0) {
-    throw new SimeraSendError({
-      status: 409,
-      reason: 'simera_already_sent',
-      message: DISABLED_REASONS.alreadySent
-    });
-  }
-  const jobId = rows[0].id;
+  const client = await db.connect();
+  // Set when ROLLBACK fails: the connection is destroyed, not reused.
+  let brokenConnectionError;
+  let result;
 
   try {
-    await enqueueJob(jobId);
+    await client.query('BEGIN');
+
+    const candidate = await client.query(
+      'SELECT id FROM candidate_profiles WHERE id = $1 FOR UPDATE',
+      [candidateId]
+    );
+    if (candidate.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return null;
+    }
+
+    const { section, disabledKey } = describeSection(
+      candidateId,
+      await findLatestSimeraFile(client, candidateId)
+    );
+    if (disabledKey) {
+      throw refusal(disabledKey);
+    }
+
+    const jobId = await createProcessingJob(client, section.file.id);
+    if (jobId === null) {
+      throw refusal('alreadySent');
+    }
+
+    await client.query('COMMIT');
+    result = { fileId: section.file.id, jobId };
   } catch (error) {
-    logger.error(`Sending job ${jobId} to the queue failed`, error.stack);
+    try {
+      await client.query('ROLLBACK');
+    } catch (rollbackError) {
+      brokenConnectionError = rollbackError;
+      logger.error('Simera send rollback failed', rollbackError.stack);
+    }
+    throw error;
+  } finally {
+    client.release(brokenConnectionError);
   }
 
-  return { fileId: section.file.id, jobId };
+  try {
+    await enqueueJob(result.jobId);
+  } catch (error) {
+    logger.error(
+      `Sending job ${result.jobId} to the queue failed`,
+      error.stack
+    );
+  }
+
+  return result;
+}
+
+function refusal(disabledKey) {
+  const { reason, message } = DISABLED[disabledKey];
+  return new SimeraSendError({ status: 409, reason, message });
 }
 
 module.exports = {

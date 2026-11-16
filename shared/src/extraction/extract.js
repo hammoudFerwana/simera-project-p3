@@ -333,8 +333,10 @@ function addBareLinks(links, seen, text) {
 // ---------- JSON (Simera file, US-22) ----------
 
 function extractFromJson(buffer) {
-  // The raw JSON text is the file text, kept as written. It is only parsed
-  // to check it, never evaluated.
+  // The raw JSON text is the file text: keys, quotes and values stay in it.
+  // Like every format, it then goes through tidyText (spaces and tabs inside
+  // a line collapse to one, lines are trimmed), so evidence is matched on
+  // that text. It is only parsed to check it, never evaluated.
   if (parseJsonText(buffer) === undefined) {
     throw new Error('JSON file is not valid UTF-8 JSON');
   }
