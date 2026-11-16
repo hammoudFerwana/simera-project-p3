@@ -39,6 +39,24 @@ Each step is `async (ctx) => ctx`. It throws `TemporaryError` or `PermanentError
 
 To replace a stub, change the entry in `worker/src/steps/index.js`. The orchestrator does not change.
 
+### Step 1: Extract text and links (US-06)
+
+`extractText` runs `extract(fileBuffer, mimeType)` from `shared/src/extraction/extract.js` on the raw uploaded file:
+
+- Fetches `storage_location`, `mime_type`, and `source_type` from `uploaded_files` for `ctx.fileId`.
+- Resolves the private storage path via `createLocalStorage` and reads the file bytes.
+- Extracts plain text and links (`[{ label, url }]`) for PDF, DOCX, or Markdown files.
+- Sets `ctx.text` and `ctx.links` for the following steps (US-07 checks email, US-08 sends to the LLM, US-09 checks evidence).
+- Safe failure handling:
+  - Missing file record: `PermanentError('Uploaded file not found')`
+  - Simera profile files: `PermanentError('Simera files are not supported yet')`
+  - Unsupported MIME type: `PermanentError('Unsupported file type')`
+  - Missing file on disk (ENOENT): `PermanentError('The uploaded file is missing')`
+  - Other file system error: `TemporaryError('The uploaded file could not be opened')`
+  - Corrupted or unreadable file: `PermanentError('The file could not be read')`
+  - Empty or almost empty extracted text: `PermanentError('Extracted text is empty')`
+- Error messages and failure reasons never contain file names, paths, or CV text.
+
 ### Step 4: Normalize skills (US-13)
 
 Normalizes raw extracted skill names to canonical names from the universal skills list:

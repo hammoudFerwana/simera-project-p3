@@ -1,3 +1,4 @@
+const { createExtractTextStep } = require('./extract-text');
 const { createCallLlmStep } = require('./call-llm');
 const { createCheckEmailStep } = require('./check-email');
 const { createNormalizeSkillsStep } = require('./normalize-skills');
@@ -33,7 +34,7 @@ const createStoreStep = () => async (ctx) => {
 };
 
 module.exports = [
-  stub('extractTextAndLinks'), // US-06
+  createExtractTextStep({ db }), // US-06
   createCheckEmailStep({ db }),
   createCallLlmStep({ db }),
   createNormalizeSkillsStep({ db }), // US-13
