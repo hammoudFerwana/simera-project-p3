@@ -319,6 +319,82 @@ const { totalMonths, perJob } = calculateExperienceMonths(jobs, {
 - `calculateExperienceMonths(jobs, { now })`: sorts valid intervals, merges overlapping intervals, and returns `{ totalMonths, perJob }`. Never mutates the input array.
 - Total experience is never stored in the database or extraction schema; it is calculated on read.
 
+## Rules engine (US-16)
+
+The rules engine evaluates differences found between stored candidate data and a newly parsed CV/file (from US-15 diff output) to determine whether changes should be applied automatically (Table B) or escalated to human review (Table C).
+
+### Table B (automatic, newest wins)
+
+When confidence meets or exceeds the threshold:
+
+- **B1**: Stored job has `is_current = true` with no end date, and the new file provides a valid end date. The end date is applied and `is_current` is updated to `false`.
+- **B2**: Values that naturally change over time:
+  - Candidate profile: `headline`, `summary`, `phone`, `city`, `country_code`, `industry`, `profession`
+  - Work experience: `description`, `location`, `employment_type`, `work_mode`
+- **B3**: Progression/levels:
+  - Languages: `proficiency_level`
+  - Skills: `proficiency_level`, `months_of_experience`
+
+### Table C (to review, stored value stays)
+
+Differences requiring human review (the stored value remains unchanged):
+
+- **C1**: Stored job ended, but the new file reports it as current or without an end date (`reason: 'conflict'`).
+- **C2**: A past date differs (`reason: 'conflict'`):
+  - `start_date` of `work_experience`, `education`, or `volunteering`
+  - `end_date` of an item stored as ended
+  - Every `education` date (`start_date`, `end_date`)
+- **C6**: New value's confidence is below the review threshold (`reason: 'low_confidence'`), even if Table B would otherwise apply. A missing or null confidence counts as below threshold.
+- **Open Decision 31 (D2)**: Differences in fields not listed in Table B or C (e.g. `first_name`, `degree_name`, `gpa`) escalate to review with `reason: 'conflict'` and `rule: 'D2'`.
+
+### Review threshold (Open Decision 34)
+
+Configured via the `REVIEW_CONFIDENCE_THRESHOLD` environment variable (0 to 1, default `0.5`). Values below the threshold trigger rule C6.
+
+### Priority order (D7)
+
+For each detected field difference:
+
+1. **Pending conflict (AC8)**: If the field already has a pending conflict, the new value is added to `addOptions` for that existing conflict. Nothing is applied automatically.
+2. **C6**: Confidence below threshold -> review with `reason: 'low_confidence'`.
+3. **B1**: Valid end date on current job -> automatic with `extraUpdates: { is_current: false }`.
+4. **C1**: Ended job reported as current -> review with `reason: 'conflict'`.
+5. **C2**: Past date difference -> review with `reason: 'conflict'`.
+6. **B2**: Naturally changing values -> automatic.
+7. **B3**: Skill/language level progression -> automatic.
+8. **D2**: Any other field -> review with `reason: 'conflict'`.
+
+### Contract
+
+#### `decideLatest(diff, { threshold, pendingConflicts, candidateProfileId })`
+
+Pure function that processes the diff without database access or side effects:
+
+- **Input**:
+  - `diff`: US-15 comparison output (`diff.differences`).
+  - `options.threshold`: Confidence threshold (number, defaults via `readThreshold()`).
+  - `options.pendingConflicts`: Array of `[{ conflictId, itemType, itemId, fieldName }]`.
+  - `options.candidateProfileId`: Stored ID for the candidate profile.
+- **Output**: `{ automatic: [...], reviews: [...], addOptions: [...] }`
+  - `automatic[i] = { rule, section, itemType, itemId, field, previous, next, extraUpdates }`
+  - `reviews[i] = { reason, rule, section, itemType, itemId, field, stored, new }`
+  - `addOptions[i] = { conflictId, field, new }`
+
+#### `applyAutomaticDecisions(client, { candidateId, jobId, fileId, automatic, addOptions, now })`
+
+Executes within the caller's transaction (never BEGIN, COMMIT or ROLLBACK):
+
+1. Reads the latest source for the previous value from `data_provenance_sources` JOIN `processing_jobs`.
+2. Updates the core database table column (and `extraUpdates`). Table and column names are checked against strict whitelist maps.
+3. Inserts a row into `conflicts` with `status = 'resolved'`, `resolution_method = 'automatic_rule'`, `applied_rule = rule`, `resolved_value`, and `resolved_at`.
+4. Inserts two rows into `conflict_options`: previous value (with its source file) and next value (with `fileId`, confidence, evidence).
+5. Upserts `data_provenance` (`resolution_method = 'latest_value'`, `approved_at = now`), replaces `data_provenance_sources` with the new job's row. For B1, `is_current` is updated similarly as a second field without a second conflicts row.
+6. For each `addOptions` entry, inserts a new row into `conflict_options` for that conflict ID without altering the core table or provenance.
+
+#### `loadPendingConflicts(client, candidateId)`
+
+Loads only pending conflicts for the candidate:
+`[{ conflictId, itemType, itemId, fieldName }]`
 ## Compare with stored data (US-15)
 
 Compares a new validated extraction against the candidate's existing stored data (`compareWithStored` in `shared/src/comparison/compare.js`, loaded via `loadStoredCandidate` in `shared/src/comparison/stored-data.js`). First-time files with no existing stored profile or section items return `null` and skip comparison.
