@@ -1,4 +1,5 @@
-﻿import { useParams } from 'react-router-dom';
+﻿
+import { useParams } from 'react-router-dom';
 
 import {
   Alert,
@@ -17,6 +18,7 @@ import CandidateProfileDetails from '../../components/admin/candidate-profile/Ca
 import SectionsList from '../../components/admin/candidate-profile/SectionsList';
 import CandidateFiles from '../../components/admin/candidate-profile/CandidateFiles';
 import CandidateHistory from '../../components/admin/candidate-profile/CandidateHistory';
+import SimeraCard from '../../components/admin/candidate-profile/SimeraCard';
 
 export default function CandidatesProfile() {
   const { id } = useParams();
@@ -82,6 +84,8 @@ export default function CandidatesProfile() {
 
         <CandidateProfileDetails profile={profile} />
 
+        <SimeraCard candidate={candidate} />
+
         <Box>
           <Typography variant="h6" fontWeight={700} sx={{ mb: 2 }}>
             Candidate Sections
@@ -115,6 +119,7 @@ export default function CandidatesProfile() {
 
           <CandidateFiles files={files ?? []} />
         </Box>
+
         <Box>
           <Typography variant="h6" fontWeight={700} sx={{ mb: 2 }}>
             Candidate History
