@@ -1,183 +1,147 @@
-
-import { useState } from "react";
-
+import { useState } from 'react';
 import {
   Alert,
   Box,
   Button,
-  CircularProgress,
   Pagination,
-  Paper,
-  Typography,
-} from "@mui/material";
+  Stack,
+  Typography
+} from '@mui/material';
+import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded';
 
-import UnknownSkillsFilters from "../../components/admin/unknown-skills/UnknownSkillsFilters";
-import UnknownSkillsTable from "../../components/admin/unknown-skills/UnknownSkillsTable";
-import UnknownSkillReview from "../../components/admin/unknown-skills/UnknownSkillReview";
+import ReviewFilters from '../../components/admin/reviews/ReviewFilters';
+import ReviewTable from '../../components/admin/reviews/ReviewTable';
+import ReviewDetails from '../../components/admin/reviews/ReviewDetails';
 
-import useUnknownSkills from "../../hooks/useUnknownSkills";
-import useUnknownSkill from "../../hooks/useUnknownSkill";
+import useReviews from '../../hooks/useReviews';
+import useReview from '../../hooks/useReview';
 
-const PAGE_SIZE = 20;
+const INITIAL_FILTERS = {
+  status: 'pending',
+  reason: '',
+  candidateId: '',
+  page: 1,
+  pageSize: 20
+};
 
 export default function ReviewQueue() {
-  const [filters, setFilters] = useState({
-    status: "pending",
-    candidateId: "",
-    page: 1,
-    pageSize: PAGE_SIZE,
-  });
+  const [filters, setFilters] = useState(INITIAL_FILTERS);
+  const [selectedReviewId, setSelectedReviewId] = useState(null);
 
-  const [selectedSkill, setSelectedSkill] = useState(null);
-  const [reviewOpen, setReviewOpen] = useState(false);
+  const { data: reviewsData, isLoading, isError, error } = useReviews(filters);
 
-  // Fetch unknown skills using current filters and pagination.
   const {
-    data,
-    isLoading,
-    isError,
-    error,
-  } = useUnknownSkills(filters);
+    data: reviewData,
+    isLoading: isReviewLoading,
+    isError: isReviewError,
+    error: reviewError
+  } = useReview(selectedReviewId);
 
-  // Fetch the selected skill's full details.
-  const {
-    data: skillDetails,
-    isLoading: isDetailsLoading,
-    isError: isDetailsError,
-  } = useUnknownSkill(selectedSkill?.id);
+  const reviews = reviewsData?.items ?? [];
+  const total = reviewsData?.total ?? 0;
 
-  const skills = data?.items || [];
+  const totalPages = Math.max(1, Math.ceil(total / filters.pageSize));
 
-  const totalPages = Math.max(
-    1,
-    Math.ceil((data?.total || 0) / PAGE_SIZE)
-  );
+  const handleFilterChange = (nextFilters) => {
+    setFilters(nextFilters);
+  };
 
-  const handleFilterChange = (name, value) => {
-    setFilters((previous) => ({
-      ...previous,
-      [name]: value,
-      page: 1,
+  const handleResetFilters = () => {
+    setFilters(INITIAL_FILTERS);
+  };
+
+  const handlePageChange = (_, page) => {
+    setFilters((current) => ({
+      ...current,
+      page
     }));
   };
 
-  const handleClearFilters = () => {
-    setFilters({
-      status: "pending",
-      candidateId: "",
-      page: 1,
-      pageSize: PAGE_SIZE,
-    });
+  const handleBackToList = () => {
+    setSelectedReviewId(null);
   };
-
-  const handleReview = (skill) => {
-    setSelectedSkill(skill);
-    setReviewOpen(true);
-  };
-
-  const handleCloseReview = () => {
-    setReviewOpen(false);
-    setSelectedSkill(null);
-  };
-
-  const reviewedSkill =
-    skillDetails?.unknownSkill || skillDetails || selectedSkill;
 
   return (
-    <Box sx={{ p: { xs: 2, md: 3 } }}>
-      <Box sx={{ mb: 3 }}>
+    <Stack spacing={3}>
+      <Box>
         <Typography variant="h4" fontWeight={700}>
           Review Queue
         </Typography>
 
-        <Typography color="text.secondary" sx={{ mt: 1 }}>
-          Review and resolve unknown skills extracted from candidate files.
+        <Typography color="text.secondary" mt={0.5}>
+          Review candidate data conflicts and resolve uncertain matches.
         </Typography>
       </Box>
 
-      <Paper sx={{ p: { xs: 2, md: 3 }, borderRadius: 3 }}>
-        <UnknownSkillsFilters
-          filters={filters}
-          onFilterChange={handleFilterChange}
-          onClear={handleClearFilters}
-        />
-
-        {isLoading ? (
-          <Box sx={{ display: "flex", justifyContent: "center", py: 5 }}>
-            <CircularProgress />
-          </Box>
-        ) : isError ? (
-          <Alert severity="error" sx={{ mt: 2 }}>
-            {error?.response?.data?.message ||
-              "Failed to load unknown skills. Please try again."}
-          </Alert>
-        ) : (
-          <>
-            <UnknownSkillsTable
-              skills={skills}
-              isLoading={isLoading}
-              onReview={handleReview}
-            />
-
-            {data?.total > 0 && (
-              <Box
-                sx={{
-                  display: "flex",
-                  justifyContent: "center",
-                  mt: 3,
-                }}
-              >
-                <Pagination
-                  count={totalPages}
-                  page={filters.page}
-                  onChange={(_, page) =>
-                    setFilters((previous) => ({
-                      ...previous,
-                      page,
-                    }))
-                  }
-                  color="primary"
-                />
-              </Box>
-            )}
-          </>
-        )}
-      </Paper>
-
-      {reviewOpen && (
+      {selectedReviewId === null ? (
         <>
-          {isDetailsLoading ? (
-            <Paper sx={{ p: 3, mt: 2 }}>
-              <CircularProgress size={24} />
-              <Typography sx={{ mt: 1 }}>
-                Loading skill details...
-              </Typography>
-            </Paper>
-          ) : isDetailsError ? (
-            <Alert
-              severity="error"
-              sx={{ mt: 2 }}
-              action={
-                <Button
-                  color="inherit"
-                  size="small"
-                  onClick={handleCloseReview}
-                >
-                  Close
-                </Button>
-              }
-            >
-              Failed to load skill details.
+          <ReviewFilters
+            filters={filters}
+            onChange={handleFilterChange}
+            onReset={handleResetFilters}
+          />
+
+          {isError ? (
+            <Alert severity="error">
+              {error?.response?.data?.message ||
+                error?.message ||
+                'Failed to load reviews.'}
             </Alert>
           ) : (
-            <UnknownSkillReview
-              open={reviewOpen}
-              skill={reviewedSkill}
-              onClose={handleCloseReview}
-            />
+            <>
+              <ReviewTable
+                reviews={reviews}
+                isLoading={isLoading}
+                onView={setSelectedReviewId}
+              />
+
+              {!isLoading && total > 0 && (
+                <Stack
+                  direction={{ xs: 'column', sm: 'row' }}
+                  justifyContent="space-between"
+                  alignItems="center"
+                  spacing={2}
+                >
+                  <Typography variant="body2" color="text.secondary">
+                    {total} review{total === 1 ? '' : 's'} found
+                  </Typography>
+
+                  <Pagination
+                    count={totalPages}
+                    page={filters.page}
+                    onChange={handlePageChange}
+                    color="primary"
+                    shape="rounded"
+                    disabled={isLoading}
+                  />
+                </Stack>
+              )}
+            </>
+          )}
+        </>
+      ) : (
+        <>
+          <Box>
+            <Button
+              startIcon={<ArrowBackRoundedIcon />}
+              onClick={handleBackToList}
+              sx={{ mb: 2 }}
+            >
+              Back to Review Queue
+            </Button>
+          </Box>
+
+          {isReviewError ? (
+            <Alert severity="error">
+              {reviewError?.response?.data?.message ||
+                reviewError?.message ||
+                'Failed to load review details.'}
+            </Alert>
+          ) : (
+            <ReviewDetails review={reviewData} isLoading={isReviewLoading} />
           )}
         </>
       )}
-    </Box>
+    </Stack>
   );
 }
