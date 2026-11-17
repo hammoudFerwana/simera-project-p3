@@ -13,6 +13,7 @@ import {
 } from '@mui/material';
 
 import useSimera from '../../../hooks/useSimera';
+import useDownloadCandidateFile from '../../../hooks/useDownloadCandidateFile';
 
 const getErrorMessage = (error, fallback) => {
   const errors = error?.response?.data?.errors;
@@ -46,16 +47,20 @@ export default function SimeraCard({ candidate }) {
   const [localError, setLocalError] = useState('');
 
   const {
+    mutate: downloadFile,
+    isPending: isDownloading,
+    error: downloadError
+  } = useDownloadCandidateFile();
+
+  const {
     simeraData,
     isLoadingSimera,
     simeraError,
     refetchSimera,
     uploadSimeraFileAsync,
     isUploading,
-    uploadError,
     sendSimeraFileAsync,
-    isSending,
-    sendError
+    isSending
   } = useSimera(candidate?.id);
 
   const handleUpload = async (event) => {
@@ -72,7 +77,13 @@ export default function SimeraCard({ candidate }) {
         throw new Error('Please select a JSON file.');
       }
 
-      const content = JSON.parse(await file.text());
+      let content;
+
+      try {
+        content = JSON.parse(await file.text());
+      } catch {
+        throw new Error('The file is not valid JSON.');
+      }
 
       const fileEmail = content?.email?.trim().toLowerCase();
       const candidateEmail = candidate?.email?.trim().toLowerCase();
@@ -154,15 +165,12 @@ export default function SimeraCard({ candidate }) {
 
         {localError && <Alert severity="error">{localError}</Alert>}
 
-        {uploadError && (
+        {downloadError && (
           <Alert severity="error">
-            {getErrorMessage(uploadError, 'Upload failed.')}
-          </Alert>
-        )}
-
-        {sendError && (
-          <Alert severity="error">
-            {getErrorMessage(sendError, 'Send failed.')}
+            {getErrorMessage(
+              downloadError,
+              'Failed to download the file. Please try again.'
+            )}
           </Alert>
         )}
 
@@ -174,7 +182,7 @@ export default function SimeraCard({ candidate }) {
           {file ? (
             <Stack spacing={1}>
               <Typography variant="body2">
-                **File name:** {file.name}
+                <strong>File name:</strong> {file.name}
               </Typography>
 
               <Typography variant="body2" color="text.secondary">
@@ -184,19 +192,14 @@ export default function SimeraCard({ candidate }) {
                   : '—'}
               </Typography>
 
-              <Typography variant="body2" color="text.secondary">
-                File ID: {file.id}
-              </Typography>
-
               <Button
-                component="a"
-                href={file.rawUrl}
-                target="_blank"
-                rel="noopener noreferrer"
                 size="small"
+                variant="outlined"
+                disabled={!file.rawUrl || isDownloading}
+                onClick={() => downloadFile(file)}
                 sx={{ alignSelf: 'flex-start' }}
               >
-                View raw file
+                {isDownloading ? 'Downloading...' : 'View raw file'}
               </Button>
             </Stack>
           ) : (
@@ -223,22 +226,14 @@ export default function SimeraCard({ candidate }) {
                 />
               </Box>
 
-              {job && (
-                <>
-                  <Typography variant="body2" color="text.secondary">
-                    Job ID: {job.id}
-                  </Typography>
+              {job?.pendingReviewCount != null && (
+                <Typography variant="body2" color="text.secondary">
+                  Pending reviews: {job.pendingReviewCount}
+                </Typography>
+              )}
 
-                  {job.pendingReviewCount != null && (
-                    <Typography variant="body2" color="text.secondary">
-                      Pending reviews: {job.pendingReviewCount}
-                    </Typography>
-                  )}
-
-                  {job.failureReason && (
-                    <Alert severity="error">{job.failureReason}</Alert>
-                  )}
-                </>
+              {job?.failureReason && (
+                <Alert severity="error">{job.failureReason}</Alert>
               )}
 
               {simeraData.disabledReason && (

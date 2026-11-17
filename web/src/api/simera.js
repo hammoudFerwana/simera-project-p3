@@ -9,9 +9,7 @@ export const uploadSimeraFileApi = async (file) => {
   const formData = new FormData();
   formData.append('file', file);
 
-  const { data } = await axiosInstance.post('admin/simera-files', formData, {
-    withCredentials: true
-  });
+  const { data } = await axiosInstance.post('/admin/simera-files', formData);
 
   return data;
 };

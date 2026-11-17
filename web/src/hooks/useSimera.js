@@ -13,7 +13,9 @@ const useSimera = (candidateId) => {
   const simeraQuery = useQuery({
     queryKey: ['simera', candidateId],
     queryFn: () => getSimeraSectionApi(candidateId),
-    enabled: Boolean(candidateId)
+    enabled: Boolean(candidateId),
+    refetchInterval: (query) =>
+      query.state.data?.status === 'processing' ? 5000 : false
   });
 
   // Upload Simera file.
