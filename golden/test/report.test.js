@@ -1,4 +1,4 @@
-const { generateMarkdownReport } = require('../lib/report');
+const { generateMarkdownReport, entryPassed } = require('../lib/report');
 
 describe('report: markdown report generation', () => {
   test('generates formatted markdown with all required sections', () => {
@@ -78,7 +78,42 @@ describe('report: markdown report generation', () => {
     expect(report).toContain('2 (33.33%)');
 
     // Planted cases
-    expect(report).toContain('| B1 | work_experience | end_date | B1 | B1 |');
+    expect(report).toContain(
+      '| B1 | work_experience | end_date | B1 | B1 | FAIL |'
+    );
     expect(report).toContain('not available yet');
+    expect(report).toContain('**Planted cases matched:** 0 / 2');
+  });
+
+  test('a rejection passes only when the reason matches the expected one', () => {
+    const base = {
+      id: '10-cv-wrong-email-pdf',
+      file: 'files/10-cv-wrong-email.pdf',
+      sourceType: 'cv',
+      expectedStatus: 'rejected',
+      actualStatus: 'rejected',
+      expectedRejectReason:
+        'The file contains an email that does not match your account email'
+    };
+
+    expect(
+      entryPassed({ ...base, rejectReason: 'The uploaded file is missing' })
+    ).toBe(false);
+    expect(
+      entryPassed({ ...base, rejectReason: base.expectedRejectReason })
+    ).toBe(true);
+    expect(entryPassed({ ...base, actualStatus: 'stored' })).toBe(false);
+
+    const report = generateMarkdownReport({
+      entryResults: [{ ...base, rejectReason: 'The uploaded file is missing' }]
+    });
+    expect(report).toContain('FAIL: The uploaded file is missing');
+    expect(report).toContain('[FAILED] Expected rejection with');
+  });
+
+  test('a stored entry passes on status alone', () => {
+    expect(
+      entryPassed({ expectedStatus: 'stored', actualStatus: 'stored' })
+    ).toBe(true);
   });
 });
