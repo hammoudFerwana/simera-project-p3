@@ -118,6 +118,15 @@ node golden/run-golden.js
 - `--steps=develop`: Uses real worker steps from `worker/src/steps/index.js` (default).
 - Output: A comprehensive summary is printed to the console and written to `golden/report.md` (git-ignored).
 
+### How the planted cases are checked
+
+- Raw uploads are saved in `golden/.storage`, and the runner points worker step 1 at the same folder.
+- Table A (A1 to A5): passes when the field has no `conflicts` row. The stored values are checked by the field accuracy section.
+- Table B (B1 to B3): passes when a `conflicts` row with `resolution_method = automatic_rule` has the same B code in `applied_rule`.
+- Table C (C1 to C6): passes when a `human_reviews` row on a `conflicts` row for the field has the expected reason: C1 and C2 `conflict`, C3 `item_match_uncertain` (field `__item__`), C4 `intra_source_conflict`, C5 `validation_failure`, C6 `low_confidence`.
+- C7: passes when an `unknown_skills` row exists for the candidate.
+- An expected rejection passes only when the actual reason equals the reason in `manifest.json`.
+
 ---
 
 ## 6. Running Unit Tests

@@ -27,6 +27,7 @@ const {
 } = require('../shared/src/upload/upload.service');
 const { processJob } = require('../worker/src/process-job');
 const realSteps = require('../worker/src/steps/index');
+const { createExtractTextStep } = require('../worker/src/steps/extract-text');
 const { getCandidateProfile } = require('../api/src/admin/candidates.service');
 const { cleanupGoldenUsers } = require('./lib/cleanup');
 const { compareStoredWithExpected } = require('./lib/compare');
@@ -69,17 +70,37 @@ async function getOrCreateCandidate(db, email) {
   return { userId, candidateId: insCand.rows[0].id };
 }
 
+/**
+ * Returns the real worker steps with step 1 (extract text) reading from the
+ * runner's storage. The other steps are unchanged.
+ *
+ * @param {Function[]} steps - real worker steps, step 1 first
+ * @param {object} db
+ * @param {object} storage - storage the runner uploads into
+ * @returns {Function[]}
+ */
+function withGoldenStorage(steps, db, storage) {
+  return [
+    createExtractTextStep({ db, getStorage: () => storage }),
+    ...steps.slice(1)
+  ];
+}
+
 async function runGolden(options = {}) {
   const {
     manifestPath = path.resolve(__dirname, 'manifest.json'),
     storageDir = path.resolve(__dirname, '.storage'),
     reportPath = path.resolve(__dirname, 'report.md'),
-    steps = realSteps,
+    steps: stepsOverride,
     logger = console
   } = options;
 
   logger.log('Starting Golden Dataset measurement run...');
   const storage = createLocalStorage({ directory: storageDir });
+
+  // The real step 1 reads raw files from UPLOAD_STORAGE_DIR by default, but
+  // the runner saves uploads in storageDir. Point step 1 at the same storage.
+  const steps = stepsOverride || withGoldenStorage(realSteps, pool, storage);
 
   // D6: Cleanup @golden.example users at the start of a run
   logger.log('Cleaning up previous @golden.example records...');
@@ -159,6 +180,7 @@ async function runGolden(options = {}) {
       file: entry.file,
       sourceType: entry.sourceType,
       expectedStatus: entry.expect,
+      expectedRejectReason: entry.rejectReason || null,
       actualStatus,
       rejectReason,
       jobStatus,
@@ -258,4 +280,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { runGolden, getOrCreateCandidate };
+module.exports = { runGolden, getOrCreateCandidate, withGoldenStorage };
