@@ -22,6 +22,8 @@ const ReviewResolutionForm = ({
     review?.reason === 'item_match_uncertain' ||
     review?.conflict?.fieldName === '__item__';
 
+  const isBooleanField = review?.conflict?.fieldName === 'is_current';
+
   const [action, setAction] = useState(isItemMatch ? 'merge' : 'choose');
   const [manualValue, setManualValue] = useState('');
   const [confidence, setConfidence] = useState(0.8);
@@ -44,7 +46,7 @@ const ReviewResolutionForm = ({
     }
 
     if (action === 'manual') {
-      payload.value = manualValue;
+      payload.value = isBooleanField ? manualValue === 'true' : manualValue;
     }
 
     if (reason.trim()) {
@@ -54,6 +56,10 @@ const ReviewResolutionForm = ({
     onSubmit(payload);
   };
 
+  const isManualValueValid = isBooleanField
+    ? manualValue === 'true' || manualValue === 'false'
+    : manualValue.trim() !== '';
+
   const isValid =
     Number.isFinite(confidence) &&
     confidence >= 0 &&
@@ -61,7 +67,7 @@ const ReviewResolutionForm = ({
     (action !== 'choose' ||
       (Number.isInteger(Number(selectedOptionId)) &&
         Number(selectedOptionId) > 0)) &&
-    (action !== 'manual' || manualValue.trim() !== '');
+    (action !== 'manual' || isManualValueValid);
 
   return (
     <Box component="form" onSubmit={handleSubmit}>
@@ -85,17 +91,23 @@ const ReviewResolutionForm = ({
           fullWidth
           disabled={isSubmitting}
         >
-          {isItemMatch ? (
-            <>
-              <MenuItem value="merge">Same entity — Merge</MenuItem>
-              <MenuItem value="add">Separate item — Add</MenuItem>
-            </>
-          ) : (
-            <>
-              <MenuItem value="choose">Choose an option</MenuItem>
-              <MenuItem value="manual">Enter a manual value</MenuItem>
-            </>
-          )}
+          {isItemMatch
+            ? [
+                <MenuItem key="merge" value="merge">
+                  Same entity - Merge
+                </MenuItem>,
+                <MenuItem key="add" value="add">
+                  Separate item - Add
+                </MenuItem>
+              ]
+            : [
+                <MenuItem key="choose" value="choose">
+                  Choose an option
+                </MenuItem>,
+                <MenuItem key="manual" value="manual">
+                  Enter a manual value
+                </MenuItem>
+              ]}
         </TextField>
 
         {action === 'choose' && (
@@ -106,18 +118,39 @@ const ReviewResolutionForm = ({
           </Alert>
         )}
 
-        {action === 'manual' && (
-          <TextField
-            label="Manual Value"
-            value={manualValue}
-            onChange={(event) => setManualValue(event.target.value)}
-            fullWidth
-            multiline
-            minRows={2}
-            required
-            disabled={isSubmitting}
-          />
-        )}
+        {action === 'manual' &&
+          (isBooleanField ? (
+            <TextField
+              select
+              label="Manual Value"
+              value={manualValue}
+              onChange={(event) => setManualValue(event.target.value)}
+              fullWidth
+              required
+              disabled={isSubmitting}
+              helperText="Select whether this item is current."
+            >
+              {[
+                <MenuItem key="true" value="true">
+                  True
+                </MenuItem>,
+                <MenuItem key="false" value="false">
+                  False
+                </MenuItem>
+              ]}
+            </TextField>
+          ) : (
+            <TextField
+              label="Manual Value"
+              value={manualValue}
+              onChange={(event) => setManualValue(event.target.value)}
+              fullWidth
+              multiline
+              minRows={2}
+              required
+              disabled={isSubmitting}
+            />
+          ))}
 
         <ReviewConfidenceInput
           value={confidence}

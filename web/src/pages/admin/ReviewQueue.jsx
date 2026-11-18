@@ -15,6 +15,7 @@ import ReviewDetails from '../../components/admin/reviews/ReviewDetails';
 
 import useReviews from '../../hooks/useReviews';
 import useReview from '../../hooks/useReview';
+import getErrorMessage from '../../utils/getErrorMessage';
 
 const INITIAL_FILTERS = {
   status: 'pending',
@@ -83,9 +84,7 @@ export default function ReviewQueue() {
 
           {isError ? (
             <Alert severity="error">
-              {error?.response?.data?.message ||
-                error?.message ||
-                'Failed to load reviews.'}
+              {getErrorMessage(error, 'Failed to load reviews.')}
             </Alert>
           ) : (
             <>
@@ -133,9 +132,7 @@ export default function ReviewQueue() {
 
           {isReviewError ? (
             <Alert severity="error">
-              {reviewError?.response?.data?.message ||
-                reviewError?.message ||
-                'Failed to load review details.'}
+              {getErrorMessage(reviewError, 'Failed to load review details.')}
             </Alert>
           ) : (
             <ReviewDetails review={reviewData} isLoading={isReviewLoading} />

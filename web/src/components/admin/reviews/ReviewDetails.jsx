@@ -1,8 +1,10 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 import {
   Alert,
   Box,
+  Button,
   Chip,
   CircularProgress,
   Divider,
@@ -17,6 +19,7 @@ import ReviewResolutionForm from './ReviewResolutionForm';
 
 import useResolveReview from '../../../hooks/useResolveReview';
 import useDownloadCandidateFile from '../../../hooks/useDownloadCandidateFile';
+import getErrorMessage from '../../../utils/getErrorMessage';
 
 const formatValue = (value) => {
   if (value === null || value === undefined) {
@@ -32,6 +35,7 @@ const formatValue = (value) => {
 
 const ReviewDetails = ({ review, isLoading, loadError }) => {
   const [selectedOptionId, setSelectedOptionId] = useState(null);
+  const navigate = useNavigate();
 
   const resolveMutation = useResolveReview();
   const downloadMutation = useDownloadCandidateFile();
@@ -207,7 +211,18 @@ const ReviewDetails = ({ review, isLoading, loadError }) => {
 
       {/* Resolution Form */}
       {review.targetType === 'unknown_skill' ? (
-        <Alert severity="info">
+        <Alert
+          severity="info"
+          action={
+            <Button
+              color="inherit"
+              size="small"
+              onClick={() => navigate('/admin/unknown-skills')}
+            >
+              Go to Unknown Skills
+            </Button>
+          }
+        >
           This review belongs to Unknown Skills. Please resolve it from the
           Unknown Skills page (US-19).
         </Alert>
@@ -223,9 +238,12 @@ const ReviewDetails = ({ review, isLoading, loadError }) => {
             onSubmit={handleResolve}
             isSubmitting={resolveMutation.isPending}
             error={
-              resolveMutation.error?.response?.data?.message ||
-              resolveMutation.error?.message ||
-              ''
+              resolveMutation.error
+                ? getErrorMessage(
+                    resolveMutation.error,
+                    'Failed to resolve review.'
+                  )
+                : ''
             }
           />
         </Paper>

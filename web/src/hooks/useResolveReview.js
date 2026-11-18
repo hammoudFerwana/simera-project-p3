@@ -1,7 +1,6 @@
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-
-import { resolveReviewApi } from "../api/admin";
+import { resolveReviewApi } from '../api/admin';
 
 const useResolveReview = () => {
   const queryClient = useQueryClient();
@@ -11,22 +10,25 @@ const useResolveReview = () => {
 
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({
-        queryKey: ["reviews"],
+        queryKey: ['reviews']
       });
 
       queryClient.invalidateQueries({
-        queryKey: ["review", variables.id],
+        queryKey: ['review', variables.id]
       });
 
-      if (variables.candidateId) {
+      if (variables.candidateId != null) {
+        const candidateId = String(variables.candidateId);
+
         queryClient.invalidateQueries({
-          queryKey: [
-            "adminCandidateProfile",
-            variables.candidateId,
-          ],
+          queryKey: ['adminCandidateProfile', candidateId]
+        });
+
+        queryClient.invalidateQueries({
+          queryKey: ['candidateHistory', candidateId]
         });
       }
-    },
+    }
   });
 };
 
