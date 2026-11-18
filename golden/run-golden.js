@@ -86,6 +86,19 @@ function withGoldenStorage(steps, db, storage) {
   ];
 }
 
+/**
+ * Returns a sleep function that logs the wait before a retry.
+ *
+ * @param {{ log: Function }} logger
+ * @returns {function(number): Promise<void>}
+ */
+function waitWithLog(logger) {
+  return (ms) => {
+    logger.log(`  temporary error, retrying in ${Math.round(ms / 1000)}s...`);
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  };
+}
+
 async function runGolden(options = {}) {
   const {
     manifestPath = path.resolve(__dirname, 'manifest.json'),
@@ -156,9 +169,11 @@ async function runGolden(options = {}) {
     }
 
     if (uploadResult && uploadResult.jobId) {
+      // Use the worker's real retry delays (30s, then 120s). With no wait, a
+      // short LLM outage (for example HTTP 503) spends all 3 attempts at once.
       await processJob(pool, uploadResult.jobId, {
         steps,
-        sleep: async () => {}
+        sleep: options.sleep || waitWithLog(logger)
       });
 
       const jobRow = await pool.query(
