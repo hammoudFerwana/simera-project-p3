@@ -9,7 +9,7 @@ import {
   Divider,
   CircularProgress
 } from '@mui/material';
-
+import PsychologyAltRoundedIcon from "@mui/icons-material/PsychologyAltRounded";
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import DashboardRoundedIcon from '@mui/icons-material/DashboardRounded';
 import FolderRoundedIcon from '@mui/icons-material/FolderRounded';
@@ -25,7 +25,9 @@ const navigationIcons = {
   Dashboard: DashboardRoundedIcon,
   'My Files': FolderRoundedIcon,
   Candidate: PeopleAltRoundedIcon,
-  'Review Queue': RateReviewRoundedIcon
+  'Review Queue': RateReviewRoundedIcon,
+  "Unknown Skills": PsychologyAltRoundedIcon,
+  
 };
 
 export default function Sidebar({ role }) {
