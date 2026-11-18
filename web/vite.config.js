@@ -6,12 +6,11 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: 'https://simera-p3-api.onrender.com',
-        changeOrigin: true,
-        secure: true,
-      },
-    },
-  },
+        target: 'http://localhost:3000',
+        changeOrigin: true
+      }
+    }
+  }
 });
 /*import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
