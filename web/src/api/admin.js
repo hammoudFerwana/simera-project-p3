@@ -15,7 +15,8 @@ export const getAdminCandidateProfileApi = async (candidateId) => {
 
   return data;
 };
-// Get candidate history
+
+// Get candidate history.
 export const getCandidateHistoryApi = async (candidateId) => {
   const { data } = await axiosInstance.get(
     `/admin/candidates/${candidateId}/history`
@@ -24,10 +25,36 @@ export const getCandidateHistoryApi = async (candidateId) => {
   return data;
 };
 
+// Get paginated review queue with optional filters.
+export const getReviewsApi = async (params = {}) => {
+  const { data } = await axiosInstance.get('/admin/reviews', {
+    params
+  });
+
+  return data;
+};
+
+// Get one review with its conflict details and options.
+export const getReviewApi = async (id) => {
+  const { data } = await axiosInstance.get(`/admin/reviews/${id}`);
+
+  return data;
+};
+
+// Resolve a review using choose, manual, merge, or add.
+export const resolveReviewApi = async (id, payload) => {
+  const { data } = await axiosInstance.post(
+    `/admin/reviews/${id}/resolve`,
+    payload
+  );
+
+  return data;
+};
+
 // Get paginated unknown skills with optional filters.
 export const getUnknownSkillsApi = async (params = {}) => {
-  const { data } = await axiosInstance.get("/admin/unknown-skills", {
-    params,
+  const { data } = await axiosInstance.get('/admin/unknown-skills', {
+    params
   });
 
   return data;
@@ -42,8 +69,8 @@ export const getUnknownSkillApi = async (id) => {
 
 // Search canonical skills.
 export const searchSkillsApi = async (q) => {
-  const { data } = await axiosInstance.get("/admin/skills/search", {
-    params: { q },
+  const { data } = await axiosInstance.get('/admin/skills/search', {
+    params: { q }
   });
 
   return data;

@@ -1,24 +1,27 @@
-
 export const navigationLinks = {
   candidate: [
     {
-      label: "Dashboard",
-      path: "/candidate",
+      label: 'Dashboard',
+      path: '/candidate'
     },
     {
-      label: "My Files",
-      path: "/candidate/my-files",
-    },
+      label: 'My Files',
+      path: '/candidate/my-files'
+    }
   ],
 
   admin: [
     {
-      label: "Candidate",
-      path: "/admin/candidates",
+      label: 'Candidate',
+      path: '/admin/candidates'
     },
     {
-      label: "Review Queue",
-      path: "/admin/review-queue",
+      label: 'Review Queue',
+      path: '/admin/review-queue'
     },
-  ],
+    {
+      label: 'Unknown Skills',
+      path: '/admin/unknown-skills'
+    }
+  ]
 };

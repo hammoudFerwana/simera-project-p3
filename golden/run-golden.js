@@ -70,12 +70,41 @@ async function getOrCreateCandidate(db, email) {
   return { userId, candidateId: insCand.rows[0].id };
 }
 
+/**
+ * Returns the real worker steps with step 1 (extract text) reading from the
+ * runner's storage. The other steps are unchanged.
+ *
+ * @param {Function[]} steps - real worker steps, step 1 first
+ * @param {object} db
+ * @param {object} storage - storage the runner uploads into
+ * @returns {Function[]}
+ */
+function withGoldenStorage(steps, db, storage) {
+  return [
+    createExtractTextStep({ db, getStorage: () => storage }),
+    ...steps.slice(1)
+  ];
+}
+
+/**
+ * Returns a sleep function that logs the wait before a retry.
+ *
+ * @param {{ log: Function }} logger
+ * @returns {function(number): Promise<void>}
+ */
+function waitWithLog(logger) {
+  return (ms) => {
+    logger.log(`  temporary error, retrying in ${Math.round(ms / 1000)}s...`);
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  };
+}
+
 async function runGolden(options = {}) {
   const {
     manifestPath = path.resolve(__dirname, 'manifest.json'),
     storageDir = path.resolve(__dirname, '.storage'),
     reportPath = path.resolve(__dirname, 'report.md'),
-    steps,
+    steps: stepsOverride,
     logger = console
   } = options;
 
@@ -88,6 +117,10 @@ async function runGolden(options = {}) {
     createExtractTextStep({ db: pool, getStorage: () => storage }),
     ...realSteps.slice(1)
   ];
+
+  // The real step 1 reads raw files from UPLOAD_STORAGE_DIR by default, but
+  // the runner saves uploads in storageDir. Point step 1 at the same storage.
+  const steps = stepsOverride || withGoldenStorage(realSteps, pool, storage);
 
   // D6: Cleanup @golden.example users at the start of a run
   logger.log('Cleaning up previous @golden.example records...');
@@ -143,9 +176,11 @@ async function runGolden(options = {}) {
     }
 
     if (uploadResult && uploadResult.jobId) {
+      // Use the worker's real retry delays (30s, then 120s). With no wait, a
+      // short LLM outage (for example HTTP 503) spends all 3 attempts at once.
       await processJob(pool, uploadResult.jobId, {
-        steps: jobSteps,
-        sleep: async () => {}
+        steps,
+        sleep: options.sleep || waitWithLog(logger)
       });
 
       const jobRow = await pool.query(
@@ -167,6 +202,7 @@ async function runGolden(options = {}) {
       file: entry.file,
       sourceType: entry.sourceType,
       expectedStatus: entry.expect,
+      expectedRejectReason: entry.rejectReason || null,
       actualStatus,
       rejectReason,
       jobStatus,
@@ -266,4 +302,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { runGolden, getOrCreateCandidate };
+module.exports = { runGolden, getOrCreateCandidate, withGoldenStorage };

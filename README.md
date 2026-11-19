@@ -1448,13 +1448,43 @@ Setting a human-reviewed value does not permanently freeze the field. Subsequent
 
 ```json
 {
-  "success": true,
-  "reviewId": 1,
-  "conflictId": 5,
-  "action": "choose",
-  "appliedValue": "2019-08"
+  "review": {
+    "id": 1,
+    "reason": "conflict",
+    "status": "completed",
+    "targetType": "conflict",
+    "createdAt": "2026-11-16T10:00:00.000Z",
+    "candidate": {
+      "id": 10,
+      "firstName": "Layla",
+      "lastName": "Khoury",
+      "email": "layla@example.com"
+    },
+    "conflict": {
+      "id": 5,
+      "itemType": "work_experience",
+      "itemId": "42",
+      "fieldName": "start_date",
+      "status": "resolved"
+    },
+    "storedValue": "2019-08",
+    "options": []
+  },
+  "applied": {
+    "itemType": "work_experience",
+    "itemId": "42",
+    "fieldName": "start_date",
+    "previousValue": "2019-05",
+    "newValue": "2019-08"
+  }
 }
 ```
+
+- `review`: the same shape as `GET /api/admin/reviews/:id`, read after the change (`options` is shortened here).
+- `applied` depends on the action:
+  - `choose`, `manual`: `{ itemType, itemId, fieldName, previousValue, newValue }`
+  - `merge`: `{ itemType, itemId, filledFields }` (the columns that were empty and are now filled)
+  - `add`: `{ itemType, newItemId }`
 
 #### Error responses
 

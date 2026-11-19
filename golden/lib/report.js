@@ -1,5 +1,19 @@
 const { calculateRate } = require('./compare');
 
+/**
+ * An entry passes when its status matches. A rejection that names an expected
+ * reason passes only when the actual reason is the same.
+ */
+function entryPassed(entry) {
+  if (entry.expectedStatus !== entry.actualStatus) {
+    return false;
+  }
+  if (entry.expectedStatus === 'rejected' && entry.expectedRejectReason) {
+    return entry.rejectReason === entry.expectedRejectReason;
+  }
+  return true;
+}
+
 function generateMarkdownReport(data) {
   const {
     timestamp = new Date().toISOString(),
@@ -49,8 +63,7 @@ function generateMarkdownReport(data) {
   lines.push('| --- | --- | --- | --- | --- | --- | --- |');
 
   for (const entry of entryResults) {
-    const statusMatch =
-      entry.expectedStatus === entry.actualStatus ? 'PASS' : 'FAIL';
+    const statusMatch = entryPassed(entry) ? 'PASS' : 'FAIL';
     const reason =
       entry.failureReason ||
       entry.rejectReason ||
@@ -131,19 +144,25 @@ function generateMarkdownReport(data) {
   lines.push('## 7. Planted Cases & Decisions');
   lines.push('');
   lines.push(
-    '| Case | Section | Field | Expected Decision | Actual Decision / Status |'
+    '| Case | Section | Field | Expected Decision | Actual Decision / Status | Match |'
   );
-  lines.push('| --- | --- | --- | --- | --- |');
+  lines.push('| --- | --- | --- | --- | --- | --- |');
 
   if (plantedResults.length === 0) {
-    lines.push('| N/A | None | None | N/A | N/A |');
+    lines.push('| N/A | None | None | N/A | N/A | N/A |');
   } else {
+    const matched = plantedResults.filter((p) => p.matches).length;
     for (const p of plantedResults) {
       const actualText = p.available ? p.actual : p.status;
+      const matchText = p.matches ? 'PASS' : 'FAIL';
       lines.push(
-        `| ${p.case} | ${p.section} | ${p.field} | ${p.expected} | ${actualText} |`
+        `| ${p.case} | ${p.section} | ${p.field} | ${p.expected} | ${actualText} | ${matchText} |`
       );
     }
+    lines.push('');
+    lines.push(
+      `**Planted cases matched:** ${matched} / ${plantedResults.length}`
+    );
   }
   lines.push('');
 
@@ -154,9 +173,10 @@ function generateMarkdownReport(data) {
     (e) => e.expectedStatus === 'rejected'
   );
   for (const rej of rejectedEntries) {
-    const passed = rej.actualStatus === 'rejected' ? 'PASSED' : 'FAILED';
+    const passed = entryPassed(rej) ? 'PASSED' : 'FAILED';
+    const expectedText = rej.expectedRejectReason || 'any reason';
     lines.push(
-      `- **${rej.id} (${rej.file}):** [${passed}] Expected rejection with "${rej.rejectReason}"`
+      `- **${rej.id} (${rej.file}):** [${passed}] Expected rejection with "${expectedText}", actual: "${rej.rejectReason || 'none'}"`
     );
   }
   lines.push('');
@@ -164,4 +184,4 @@ function generateMarkdownReport(data) {
   return lines.join('\n');
 }
 
-module.exports = { generateMarkdownReport };
+module.exports = { generateMarkdownReport, entryPassed };
