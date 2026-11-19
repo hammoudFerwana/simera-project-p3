@@ -27,6 +27,7 @@ const {
 } = require('../shared/src/upload/upload.service');
 const { processJob } = require('../worker/src/process-job');
 const realSteps = require('../worker/src/steps/index');
+const { createExtractTextStep } = require('../worker/src/steps/extract-text');
 const { getCandidateProfile } = require('../api/src/admin/candidates.service');
 const { cleanupGoldenUsers } = require('./lib/cleanup');
 const { compareStoredWithExpected } = require('./lib/compare');
@@ -74,12 +75,19 @@ async function runGolden(options = {}) {
     manifestPath = path.resolve(__dirname, 'manifest.json'),
     storageDir = path.resolve(__dirname, '.storage'),
     reportPath = path.resolve(__dirname, 'report.md'),
-    steps = realSteps,
+    steps,
     logger = console
   } = options;
 
   logger.log('Starting Golden Dataset measurement run...');
   const storage = createLocalStorage({ directory: storageDir });
+  // The real extract step reads raw files from UPLOAD_STORAGE_DIR, but the
+  // runner saves them in its own storage folder, so that step must read
+  // from the same folder.
+  const jobSteps = steps ?? [
+    createExtractTextStep({ db: pool, getStorage: () => storage }),
+    ...realSteps.slice(1)
+  ];
 
   // D6: Cleanup @golden.example users at the start of a run
   logger.log('Cleaning up previous @golden.example records...');
@@ -136,7 +144,7 @@ async function runGolden(options = {}) {
 
     if (uploadResult && uploadResult.jobId) {
       await processJob(pool, uploadResult.jobId, {
-        steps,
+        steps: jobSteps,
         sleep: async () => {}
       });
 

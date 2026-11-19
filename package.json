@@ -17,6 +17,7 @@
     "db:setup": "npm run schema --workspace=shared && npm run seed --workspace=shared",
     "golden": "node golden/run-golden.js",
     "golden:files": "node golden/make-golden-files.js",
+    "golden:trace": "node golden/verify-traceability.js",
     "lint": "eslint .",
     "format": "prettier --write .",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js"
