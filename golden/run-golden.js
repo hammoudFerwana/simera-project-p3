@@ -110,13 +110,6 @@ async function runGolden(options = {}) {
 
   logger.log('Starting Golden Dataset measurement run...');
   const storage = createLocalStorage({ directory: storageDir });
-  // The real extract step reads raw files from UPLOAD_STORAGE_DIR, but the
-  // runner saves them in its own storage folder, so that step must read
-  // from the same folder.
-  const jobSteps = steps ?? [
-    createExtractTextStep({ db: pool, getStorage: () => storage }),
-    ...realSteps.slice(1)
-  ];
 
   // The real step 1 reads raw files from UPLOAD_STORAGE_DIR by default, but
   // the runner saves uploads in storageDir. Point step 1 at the same storage.
