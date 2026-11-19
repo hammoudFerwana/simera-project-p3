@@ -136,3 +136,42 @@ Unit tests verify the runner helpers, math calculation, safety guards, and manif
 ```bash
 npm test -- golden/test --verbose
 ```
+
+---
+
+## 7. Traceability Verification (US-25)
+
+After a golden run, verify every traceability target of Requirements 4.3 against the same database:
+
+```bash
+npm run golden:trace
+```
+
+The script reads `GOLDEN_DATABASE_URL` (same `simera_golden*` guard as the runner), runs read-only queries, prints `PASS`/`FAIL` per check with up to 10 offending rows, and exits with code `1` when any check fails.
+
+| Requirement            | Check                                                                                                                      | Target |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------- | ------ |
+| Record per value       | Stored non-empty values (core tables) with no `data_provenance` row                                                        | 0      |
+| Evidence per value     | `no_conflict` / `latest_value` provenance with no `data_provenance_sources` row with non-blank evidence                    | 0      |
+| Automatic decisions    | `automatic_rule` conflicts not resolved, without a B1/B2/B3 code, resolved value or date, or without exactly two options   | 0      |
+| Automatic decisions    | Conflicts with a B code that are not `automatic_rule`                                                                      | 0      |
+| Automatic decisions    | `latest_value` provenance not explained by an `automatic_rule` conflict (`is_current` is covered by the B1 `end_date` row) | 0      |
+| Human decisions        | Completed reviews missing who, when, confidence, the new value or the previous value                                       | 100%   |
+| Human decisions        | `human_audit_log` rows not matched by a completed review of the same admin                                                 | 0      |
+| Versions               | Extractions (`extracted_at` set) missing model name, model version or prompt version                                       | 100%   |
+| Versions               | Provenance sources whose job has no extraction or misses a version                                                         | 0      |
+| No repeated processing | Files with more than one job, and duplicate `file_hash` values                                                             | 0 / 0  |
+
+How a human decision counts as complete:
+
+- **Who / when / confidence:** `human_reviews.admin_id`, `reviewed_at`, and `confidence` in [0, 1].
+- **New value:** `conflicts.resolved_value` (resolved by `human_review`), or for an unknown skill `unknown_skills.status` = `accepted` with `resolved_skill_id`, or `rejected`.
+- **Previous value:** the conflict's `conflict_options` (at least one), or the `unknown_skills` row itself. `human_audit_log` only records decisions that changed a value, so it is checked in the other direction (every audit row belongs to a completed decision).
+
+Manual and human-decided values have no `data_provenance_sources` rows by design; they are covered by the human decision checks.
+
+Tests (integration, on `TEST_DATABASE_URL`, each test rolled back; skipped when the variable is missing). They include the negative test that deletes a provenance row on purpose:
+
+```bash
+npm test -- golden/test/traceability.test.js --verbose
+```
