@@ -1,1667 +1,323 @@
-# Simera Project P3
+# TalentVault
+## Multi-Source Resume Parsing & Data-Enrichment Sync
 
-Resume parsing and profile sync system.
+Simera is a candidate profile management system that automates the collection, extraction, validation, and synchronization of candidate information from multiple sources, including CVs, LinkedIn profiles, and Simera JSON files.
 
-Candidates register, verify their email with an OTP, and upload a CV (PDF or DOCX) and a LinkedIn Markdown file. A background worker extracts the data, validates it with code, resolves conflicts with fixed rules, and stores every value with its source.
+By combining automated data extraction, validation rules, conflict resolution, and data provenance, the system maintains structured and traceable candidate profiles while identifying information that requires human review.
 
-## Stack
+## Table of Contents
 
-- Backend: Node.js and Express (plain JavaScript, CommonJS)
-- Database: PostgreSQL
-- Workspaces: npm workspaces (api, worker, shared)
+- [Problem](#problem)
+- [Solution](#solution)
+- [System Architecture](#system-architecture)
+- [Processing Workflow](#processing-workflow)
+- [Features](#features)
+- [Technology Stack](#technology-stack)
+- [Project Structure](#project-structure)
+- [Application Screenshots](#application-screenshots)
+- [Setup & Installation](#setup--installation)
+- [API Documentation](#api-documentation)
+- [Testing](#testing)
+- [Contributors](#contributors)
 
-## Prerequisites
+  
+## Problem
 
-- **Node.js**: version 22 LTS or later (`>=22.0.0`)
-- **npm**: version 10 or later
-- **PostgreSQL**: installed and running
+Candidate information is often scattered across multiple sources, including CVs, LinkedIn profiles, and internal records. Consolidating and maintaining this information manually makes it difficult to ensure that candidate profiles remain accurate, consistent, and up to date, especially when information is duplicated, conflicting, or requires verification.
 
-## Getting Started (Fresh Clone)
+This creates several challenges:
+- Fragmented information: Candidate data is spread across multiple sources.
+- Conflicting data: Different sources may contain inconsistent or outdated information.
+- Duplicate records: The same information may appear in different formats across sources.
+- Lack of traceability: Difficulty tracking the source and evidence behind each value.
+- Data reliability: Extracted information may be incomplete or inaccurate.
+- Manual effort: Comparing sources and updating profiles is time-consuming and difficult to scale.
 
-1. Clone the repository:
+  
+## Solution
 
-   ```bash
-   git clone <repository-url>
-   cd simera-project-p3
-   ```
+Simera addresses these challenges through an automated multi-source processing pipeline that:
 
-2. Install all dependencies across all workspaces:
+1. Collects candidate data from supported sources.
+2. Extracts structured information using an LLM-based process.
+3. Validates extracted data using application rules.
+4. Detects conflicts and applies defined resolution rules.
+5. Stores accepted information with its source, confidence, and supporting evidence.
+6. Routes uncertain information for human review.
 
-   ```bash
-   npm install
-   ```
+This results in centralized, structured, and traceable candidate profiles.
 
-3. Set up the local environment configuration:
+## System Architecture
 
-   ```bash
-   cp .env.example .env
-   ```
+The system follows a modular architecture consisting of a frontend, a REST API, a background worker, and a PostgreSQL database.
 
-   _(On Windows PowerShell: `Copy-Item .env.example .env`)_
+The API handles authentication, file uploads, and administrative requests, while the background worker processes uploaded files asynchronously. Both components use shared modules for common processing and data-management logic.
+```mermaid
+flowchart TD
+    A[CV Files] --> D[Upload API]
+    B[LinkedIn Data] --> D
+    C[Simera JSON] --> D
 
-   Review `.env` and configure any necessary values:
-   - `NODE_ENV`: application environment (default: `development`)
-   - `API_PORT`: port for the Express API server (default: `3000`)
-   - `DATABASE_URL`: PostgreSQL connection string
-   - `TEST_DATABASE_URL`: PostgreSQL connection string for the test database (`simera_test`).
-   - `ADMIN_EMAIL`: email address for the initial admin account.
-   - `ADMIN_PASSWORD`: password for the initial admin account (at least 12 characters).
-   - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM`: the SMTP server that sends verification codes. See [Email (SMTP) Setup](#email-smtp-setup).
+    D --> E[Queue]
+    E --> F[Worker]
 
-## Database Setup
+    F --> G[Text Extraction]
+    G --> H[LLM Extraction]
+    H --> I[Validation & Conflict Resolution]
 
-Make sure PostgreSQL is installed and running before proceeding.
+    I --> J[Storage]
+    J --> K[(PostgreSQL)]
 
-### 1. Create the Database
+    classDef source fill:#E3F2FD,stroke:#2196F3,color:#0D47A1
+    classDef api fill:#E8EAF6,stroke:#3F51B5,color:#1A237E
+    classDef process fill:#E8F5E9,stroke:#4CAF50,color:#1B5E20
+    classDef validation fill:#FFF3E0,stroke:#FF9800,color:#E65100
+    classDef storage fill:#EDE7F6,stroke:#673AB7,color:#311B92
 
-Create a local PostgreSQL database named `simera`.
-
-You can create it using pgAdmin or the PostgreSQL command line:
-
-```bash
-createdb simera
-createdb simera_test
+    class A,B,C source
+    class D,E api
+    class F,G,H process
+    class I validation
+    class J,K storage
 ```
 
-### 2. Configure Environment Variables
+## Processing Workflow
 
-Make sure your `.env` file contains the following variables:
+The system processes candidate data through a sequence of automated stages, from file submission to structured profile storage.
 
-- `DATABASE_URL`: PostgreSQL connection string.
-- `ADMIN_EMAIL`: initial admin email address.
-- `ADMIN_PASSWORD`: initial admin password (at least 12 characters).
-- `TEST_DATABASE_URL`: PostgreSQL connection string for the test database (`simera_test`).
+1. **Data Upload:** Candidates upload their CV and LinkedIn data, while administrators can upload Simera JSON files.
+2. **Queue Management:** Accepted uploads are added to a processing queue.
+3. **Background Processing:** A worker extracts text and sends the collected data through the LLM extraction process.
+4. **Validation & Conflict Resolution:** Extracted information is validated, and conflicts are handled using defined resolution rules.
+5. **Data Storage:** Accepted information is stored in PostgreSQL along with its source, confidence, and evidence.
+6. **Human Review:** Information requiring further verification is routed for human review.
 
-Use your own local database credentials. Never commit the `.env` file.
+## Features
 
-### 3. Initialize the Database
+| Feature | Description |
+|---|---|
+| **Multi-Source Data Ingestion** | Collect candidate information from CV files, LinkedIn data, and Simera JSON files. |
+| **Automated Data Extraction** | Extract structured candidate information using an LLM-based process. |
+| **Data Validation** | Validate extracted information using predefined rules to ensure data consistency and reliability. |
+| **Conflict Detection & Resolution** | Detect conflicting information across sources and apply predefined resolution rules. |
+| **Data Provenance** | Track the source, confidence score, and supporting evidence for each candidate profile field. |
+| **Human Review** | Identify uncertain or conflicting information and route it for human verification. |
+| **Candidate Management** | Allow administrators to search, filter, and view candidate profiles and their extracted information. |
+| **File Processing Tracking** | Allow candidates to monitor the processing status of their uploaded files. |
+| **Email Verification & Authentication** | Provide secure user authentication and email verification. |
+| **Golden Dataset & Accuracy Measurement** | Evaluate extraction accuracy and conflict resolution using a synthetic reference dataset. |
 
-Run the unified setup command:
+## Technology Stack
+
+The project is built using the following technologies:
+
+| Category | Technology |
+|---|---|
+| Backend | Node.js, Express.js |
+| Frontend | React |
+| Database | PostgreSQL |
+| Background Processing | Node.js Worker |
+| AI & Data Extraction | Large Language Model (LLM) |
+| Testing | Jest |
+| Code Quality | ESLint, Prettier |
+| Package Management | npm Workspaces |
+
+## Project Structure
+
+```text
+simera-project-p3/
+│
+├── api/          # REST API and authentication
+├── worker/       # Background processing
+├── shared/       # Shared business logic
+├── web/          # Frontend application
+├── golden/       # Reference dataset and accuracy testing
+│
+├── package.json
+└── README.md
+```
+
+## Application Screenshots
+
+### Authentication
+<!-- Add login and registration screenshots here -->
+
+### Candidate Dashboard
+<!-- Add candidate dashboard and file upload screenshots here -->
+
+### Admin Dashboard
+<!-- Add admin dashboard and candidate list screenshots here -->
+
+### Candidate Profile
+<!-- Add candidate profile details and data provenance screenshots here -->
+
+## Setup & Installation
+
+### Prerequisites
+
+Make sure the following tools are installed:
+
+- **Node.js** >= 22
+- **npm**
+- **PostgreSQL**
+
+### 1. Clone the Repository
+
+```bash
+git clone https://github.com/hammoudFerwana/simera-project-p3.git
+cd simera-project-p3
+```
+
+### 2. Install Dependencies
+
+Install all project dependencies using npm:
+
+```bash
+npm ci
+```
+
+### 3. Environment Configuration
+
+Create a `.env` file in the project root and configure the required environment variables.
+
+The configuration includes:
+
+| Variable | Description |
+|---|---|
+| `NODE_ENV` | Application environment |
+| `API_PORT` | API server port |
+| `DATABASE_URL` | PostgreSQL connection string |
+| `TEST_DATABASE_URL` | Test database connection string |
+| `GOLDEN_DATABASE_URL` | Dedicated database for golden accuracy measurements |
+| `ADMIN_EMAIL` | Initial admin account email |
+| `ADMIN_PASSWORD` | Initial admin account password |
+| `SMTP_HOST`, `SMTP_PORT` | SMTP server configuration |
+| `SMTP_USER`, `SMTP_PASS` | SMTP authentication credentials |
+| `MAIL_FROM` | Sender email address |
+| `JWT_SECRET` | Secret used to sign authentication tokens |
+| `LLM_BASE_URL` | LLM provider API endpoint |
+| `LLM_API_KEY` | LLM provider API key |
+| `LLM_MODEL` | LLM model name |
+
+Additional optional settings are available for file uploads, worker scheduling, skill matching, and review confidence thresholds.
+
+**Important:**
+- Use strong, unique values for passwords and secrets.
+- Configure valid SMTP credentials for email verification.
+- Provide a valid API key for the configured LLM provider.
+- The golden measurement database name must start with `simera_golden`.
+- Never commit your `.env` file or expose sensitive credentials.
+
+### 4. Database Setup
+
+Make sure PostgreSQL is running and the database connection is configured correctly.
+
+Run the following command to create the database schema and seed the initial data:
 
 ```bash
 npm run db:setup
 ```
 
-This command runs the following steps in order:
+### 5. Run the Application
 
-1. Applies the database schema, creating tables, types, and constraints.
-2. Creates the initial admin account using `ADMIN_EMAIL` and `ADMIN_PASSWORD`.
+Start each component in a separate terminal from the project root.
 
-**Important:** Run this command only when initializing a new, empty database. Do not run it again on an already initialized database.
-
-### 4. Optional Seed Scripts
-
-The following scripts can be run separately when needed:
-
-Insert the predefined skills list (US-13):
+**Start the API server:**
 
 ```bash
-npm run seed:skills --workspace=shared
+npm run dev:api
 ```
 
-Insert sample candidate data for local development and database relationship testing:
+**Start the background worker:**
 
 ```bash
-npm run seed:candidates --workspace=shared
+npm run dev:worker
 ```
 
-**Note:** The sample candidate seed requires the predefined skills to exist in the database. Run the skills seed before the sample candidate seed.
+### 6. Run Tests
 
-## Email (SMTP) Setup
-
-The API emails verification codes (OTP) to the address the candidate registered with, through Nodemailer over SMTP. It needs `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` and `MAIL_FROM` in `.env`, and refuses to start if any of them is missing.
-
-**Gmail or Google Workspace (company email).** Google doesn't accept the normal account password over SMTP; it needs an App Password.
-
-1. Turn on **2-Step Verification** for the sending account.
-2. Create an App Password at [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords) (16 characters). On Google Workspace, the admin must allow App Passwords.
-3. Set in `.env`:
-
-   ```dotenv
-   SMTP_HOST=smtp.gmail.com
-   SMTP_PORT=465
-   SMTP_USER=<sending address>
-   SMTP_PASS=<the App Password, without spaces>
-   MAIL_FROM=TalentVault <same sending address>
-   ```
-
-`MAIL_FROM` must use the same address as `SMTP_USER`. Gmail allows about 500 emails a day for a personal account (more on Workspace).
-
-**Another provider:** use its SMTP host, port and credentials. Port `465` uses TLS from the start; other ports (such as `587`) upgrade with STARTTLS.
-
-**Security:** the App Password can send email as that account. Keep it only in your `.env`, never commit it, and share it with teammates privately if they need to send codes. A dedicated project account is safer than a personal one.
-
-**Testing by hand:** register with an inbox you can read. With Gmail, every `yourname+anything@gmail.com` address is a different account for the API but lands in the `yourname@gmail.com` inbox, so one inbox is enough for many test accounts. Avoid made-up addresses: you can't read their code, and repeated bounces can get the sending account blocked.
-
-## Running the Applications
-
-Each component can be run individually using root npm scripts:
-
-- **API Server**:
-
-  ```bash
-  npm run dev:api
-  ```
-
-  Runs the Express API on `http://localhost:3000`. Health check available at `GET /health`.
-
-- **Worker Process**:
-  ```bash
-  npm run dev:worker
-  ```
-  Starts the background worker process.
-
-## API Endpoints
-
-The API endpoints need a PostgreSQL database with `shared/sql/schema.sql` loaded, and `DATABASE_URL` in `.env` pointing to it. `GET /health` works without a database.
-
-### `POST /api/auth/register` (US-01)
-
-Registers a candidate with an email and a password.
-
-- The email is trimmed and lowercased before it's checked and saved, so `Jane@Example.com` and `jane@example.com` are the same account.
-- The password must be at least 8 characters. Only a bcrypt hash (cost 12) is stored.
-- One transaction creates the `users` row (`email_verified = false`, `otp_attempts = 0`) and the linked `candidate_profiles` row. If either insert fails, nothing is saved. No `admins` row is created: admins are inserted by the team directly.
-- After the account is saved, a verification code is generated and emailed (see `POST /api/auth/verify-otp`). If sending fails, the account stays without a code, the response has `otpSent: false`, and the candidate requests a new code with `POST /api/auth/resend-otp`.
-
-Request:
-
-```json
-{ "email": "jane.doe@example.com", "password": "secret-pass-1" }
-```
-
-Responses:
-
-| Status | When                           | Body                                                                                                                                   |
-| ------ | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `201`  | Account created                | `{ "message": "Account created. Enter the verification code sent to your email.", "email": "...", "otpSent": true }`                   |
-| `201`  | Account created, code not sent | `{ "message": "Account created, but the verification code could not be sent. Request a new code.", "email": "...", "otpSent": false }` |
-| `400`  | Invalid input                  | `{ "errors": { "email": "Enter a valid email address", "password": "Password must be at least 8 characters" } }`                       |
-| `400`  | Malformed JSON body            | `{ "errors": { "body": "Invalid JSON body" } }`                                                                                        |
-| `409`  | Email already registered       | `{ "errors": { "email": "This email is already in use" } }`                                                                            |
-| `500`  | Unexpected error               | `{ "errors": { "server": "Something went wrong" } }`                                                                                   |
-
-`errors` is keyed by field name, so each message can be shown next to its field.
-
-Try it with the API running (`npm run dev:api`):
+Run the project test suite:
 
 ```bash
-curl -i -X POST http://localhost:3000/api/auth/register \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"jane.doe@example.com","password":"secret-pass-1"}'
+npm test
 ```
 
-Then check the database:
-
-```sql
-SELECT u.id, u.email, u.email_verified, u.otp_attempts, cp.id AS profile_id
-FROM users u
-JOIN candidate_profiles cp ON cp.user_id = u.id
-WHERE u.email = 'jane.doe@example.com';
-```
-
-### Email verification with OTP (US-02)
-
-After registering, the candidate receives a 6-digit code by email and must enter it before logging in.
-
-- The code is valid for **10 minutes** and can be used **once**. Only its bcrypt hash is stored (`users.otp_hash`, `users.otp_expires_at`); the code itself is never stored or logged.
-- Each wrong code increments `users.otp_attempts`. The 5th wrong code invalidates the code, so even the correct code is refused afterwards, and a new code must be requested.
-- An expired code is not counted as a wrong attempt.
-- Requesting a new code replaces the old one (it stops working) and resets `otp_attempts` to 0.
-- A new code is saved only if its email is sent. If sending fails, nothing changes: the previous code (if any) still works.
-- Parallel resend requests for the same user run one after another, so the last email received always holds the valid code.
-- A code with no expiry date is never accepted.
-- The candidate isn't logged in yet, so both endpoints take the email in the body. It's trimmed and lowercased, like at registration.
-
-Expected outcomes return `{ "errors": { <field>: message }, "reason": <code> }`. `reason` is a stable value the frontend can branch on, for example to show a "Resend code" button for `expired` and `too_many_attempts`.
-
-#### `POST /api/auth/verify-otp`
-
-Request:
-
-```json
-{ "email": "jane.doe@example.com", "code": "042137" }
-```
-
-| Status | `reason`            | When                                         | Message (`errors.<field>`)                             |
-| ------ | ------------------- | -------------------------------------------- | ------------------------------------------------------ |
-| `200`  |                     | Correct code: `email_verified = true`        | `{ "message": "Email verified. You can now log in." }` |
-| `400`  |                     | Invalid email, or the code isn't 6 digits    | `email` / `code`: field message                        |
-| `400`  | `incorrect`         | Wrong code (also returns `attemptsLeft`)     | `code`: "The code is incorrect"                        |
-| `400`  | `too_many_attempts` | 5 wrong codes; the code is invalidated       | `code`: "Too many wrong attempts. Request a new code"  |
-| `400`  | `expired`           | More than 10 minutes since the code was sent | `code`: "The code has expired"                         |
-| `400`  | `no_active_code`    | No code to check (e.g. already cleared)      | `code`: "There is no active code. Request a new code"  |
-| `404`  | `not_found`         | No account uses this email                   | `email`: "No account uses this email"                  |
-| `409`  | `already_verified`  | The email is already verified                | `email`: "This email is already verified"              |
-
-#### `POST /api/auth/resend-otp`
-
-Request:
-
-```json
-{ "email": "jane.doe@example.com" }
-```
-
-| Status | `reason`           | When                               | Message (`errors.<field>`)                                         |
-| ------ | ------------------ | ---------------------------------- | ------------------------------------------------------------------ |
-| `200`  |                    | A new code was sent                | `{ "message": "A new verification code was sent to your email." }` |
-| `400`  |                    | Invalid email                      | `email`: field message                                             |
-| `404`  | `not_found`        | No account uses this email         | `email`: "No account uses this email"                              |
-| `409`  | `already_verified` | The email is already verified      | `email`: "This email is already verified"                          |
-| `503`  | `send_failed`      | The email server failed; try again | `email`: "Could not send the code. Try again"                      |
-
-Try it with the API running and SMTP configured (the code arrives in the registered inbox):
+To check code quality:
 
 ```bash
-curl -i -X POST http://localhost:3000/api/auth/verify-otp \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"jane.doe@example.com","code":"042137"}'
-
-curl -i -X POST http://localhost:3000/api/auth/resend-otp \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"jane.doe@example.com"}'
+npm run lint
 ```
 
-Then check the database:
+## API Documentation
 
-```sql
-SELECT email, email_verified, otp_hash IS NOT NULL AS has_code, otp_expires_at, otp_attempts
-FROM users
-WHERE email = 'jane.doe@example.com';
-```
+The API documentation is available through Apidog and provides detailed information about the available endpoints, request parameters, authentication, and response formats.
 
-Run the OTP tests only. They run against the real `simera_test` database (`TEST_DATABASE_URL`, schema loaded) with a fake mailer, so no email is sent:
+[View API Documentation](https://share.apidog.com/94bb66e2-5545-4ec2-b634-25c3e3bf6f6d)
+
+## Testing
+
+The project uses Jest for automated testing to verify individual components, system integration, and overall data processing accuracy.
+
+### Automated Tests
+
+Unit tests verify individual modules and functions, including data extraction, validation, storage logic, and utility functions.
+
+Run the test suite:
 
 ```bash
-npx jest api/test/otp.test.js --verbose
+npm test
 ```
 
-### Login, logout and access guards (US-03)
+### Integration Tests
 
-One login for candidates and admins. On success the API signs a **JWT** holding `{ userId, role }` and sends it in an **HttpOnly cookie** named `access_token`. The browser sends the cookie back automatically on every request; the frontend never reads or stores the token itself.
+Integration tests verify the interaction between different system components, including API endpoints, database operations, and background processing workflows.
 
-- **Role:** `admin` if the user has an `admins` row, otherwise `candidate` (there is no role column). It's derived at login and kept inside the token.
-- **Expiry:** `JWT_EXPIRES_IN_HOURS` (default 24) for both the token and the cookie. After that the user logs in again.
-- **Stateless:** tokens aren't stored anywhere. Logout clears the cookie; a token copied before logout stays valid until it expires, and a role change (an `admins` row added or removed) applies at the next login.
-- **Cookie:** `HttpOnly`, `SameSite=Lax`, `Path=/`, and `Secure` when `NODE_ENV=production`.
-- **Frontend on another port:** cookies are sent only to the same site, so run the frontend through a dev proxy to the API (e.g. Vite `server.proxy` for `/api`) and send requests with `credentials: 'include'`.
+### Golden Dataset & Accuracy Measurement
 
-Requires `JWT_SECRET` in `.env` (the API refuses to start without it). Generate one with:
+The project includes a dedicated golden dataset consisting of 12 synthetic candidate files in different formats, with hand-written expected results.
+
+The measurement runner processes these files through the actual pipeline and compares the resulting candidate profiles against the expected data.
+
+It evaluates:
+
+- Field extraction accuracy.
+- Date exact-match rates.
+- Experience duration matching.
+- Automatic conflict resolution and human review decisions.
+- Expected file rejection outcomes.
+
+Generate the synthetic input files:
 
 ```bash
-node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
+npm run golden:files
 ```
 
-#### `POST /api/auth/login`
-
-Request:
-
-```json
-{ "email": "jane.doe@example.com", "password": "secret-password" }
-```
-
-The email is trimmed and lowercased, like at registration.
-
-| Status | `reason`                | When                                                                         | Body                                                                                                    |
-| ------ | ----------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `200`  |                         | Correct credentials; sets the `access_token` cookie                          | `{ "message": "Logged in", "user": { "id": 2, "email": "jane.doe@example.com", "role": "candidate" } }` |
-| `400`  |                         | Invalid email, or an empty password                                          | `errors.email` / `errors.password`: field message                                                       |
-| `401`  | `invalid_credentials`   | Unknown email or wrong password (same message for both)                      | `errors.credentials`: "Email or password is incorrect"                                                  |
-| `403`  | `verification_required` | Correct password, but the candidate's email isn't verified; no cookie is set | See the example below                                                                                   |
-
-The `403` body also carries the account's normalized email at the top level, so the frontend can open `/verify` for it:
-
-```json
-{
-  "errors": { "email": "Verify your email before logging in" },
-  "reason": "verification_required",
-  "email": "jane.doe@example.com"
-}
-```
-
-The frontend redirects by `user.role` (`candidate` → `/candidate`, `admin` → `/admin`), and to `/verify` on `verification_required`.
-
-#### `POST /api/auth/logout`
-
-Clears the cookie. Always `200` with `{ "message": "Logged out" }`, with or without a token.
-
-#### `GET /api/auth/me`
-
-Returns the logged-in user from the cookie, so the frontend can restore the session after a page reload.
-
-| Status | Body                                                               |
-| ------ | ------------------------------------------------------------------ |
-| `200`  | `{ "user": { "id": 2, "role": "candidate" } }`                     |
-| `401`  | `errors.auth`: "Log in to continue" (no, invalid or expired token) |
-
-Try it (`-c` saves the cookie, `-b` sends it):
+Run the accuracy measurement:
 
 ```bash
-curl -i -c cookies.txt -X POST http://localhost:3000/api/auth/login \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"admin@example.com","password":"change_this_password_123"}'
-
-curl -i -b cookies.txt http://localhost:3000/api/auth/me
-
-curl -i -b cookies.txt -c cookies.txt -X POST http://localhost:3000/api/auth/logout
+npm run golden
 ```
 
-#### Guards for protected routes
+The measurement results are printed to the console and saved to `golden/report.md`.
 
-Every later protected route uses the guards in `api/src/auth/guards.js` instead of its own checks:
+The golden measurement requires a dedicated PostgreSQL database whose name starts with `simera_golden`.
 
-| Guard                                 | Checks                                                                                                               | Fails with |
-| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | ---------- |
-| `requireAuth`                         | A valid, unexpired token cookie. Sets `req.user = { userId, role }`                                                  | `401`      |
-| `requireRole('admin' \| 'candidate')` | `req.user.role` is the given role                                                                                    | `403`      |
-| `requireOwnership(getOwnerUserId)`    | A candidate owns the resource (`getOwnerUserId(req)`, sync or async, returns its `users.id`). An admin always passes | `403`      |
+### Code Quality
 
-`requireRole` and `requireOwnership` run after `requireAuth`. Errors use `errors.auth` ("Log in to continue" / "You do not have access to this resource").
-
-```js
-const {
-  requireAuth,
-  requireRole,
-  requireOwnership
-} = require('../auth/guards');
-
-// Admin-only API
-router.get('/candidates', requireAuth, requireRole('admin'), listCandidates);
-
-// A candidate reaches only their own file; an admin reaches any file
-router.get(
-  '/files/:fileId',
-  requireAuth,
-  requireOwnership(async (req) => findFileOwnerUserId(req.params.fileId)),
-  getFile
-);
-```
-
-### File upload (US-04)
-
-A verified candidate uploads a CV (PDF or DOCX) and a LinkedIn file (md, exported with the "LinkedIn to Markdown" extension) in two separate slots, one file per request. An updated version can be uploaded at any time, and each accepted file gets its own processing job.
-
-**What happens, in order** (requirements 3.3):
-
-1. The extension is accepted for the slot: `cv` → `.pdf` / `.docx`, `linkedin` → `.md`.
-2. The real content matches the extension: PDF starts with `%PDF-`, DOCX is a ZIP holding `word/document.xml`, md is valid UTF-8 text. The client's `Content-Type` is ignored.
-3. The size is 10 MB or less.
-4. The file opens and its text is extracted (unpdf for PDF, mammoth for DOCX, md read as plain text and never rendered as HTML). Text shorter than `MIN_EXTRACTED_TEXT_CHARS` (after collapsing whitespace) means "no readable text".
-5. Duplicate check: SHA-256 of the extracted text (trimmed, whitespace collapsed), looked up in **all** `uploaded_files` rows. The same text with different spacing, or uploaded by another candidate, is a duplicate.
-6. The raw file is saved unchanged in private storage (`UPLOAD_STORAGE_DIR`, default `storage/uploads/`), under a random name.
-7. One transaction inserts the `uploaded_files` row and its `processing_jobs` row (status `queued`).
-8. The job id is sent to the queue (`enqueueJob` from `shared/src/queue.js`, pg-boss), once.
-
-**A rejected file leaves nothing behind:** no raw file, no row, no job, and the reason is only in the response. If saving fails after the raw file was written, the file is deleted again.
-
-**Shared service:** steps 1–8 live in `processUpload()` in `shared/src/upload/upload.service.js`, with a `sourceType` parameter. US-22 (Simera JSON) uses the same function with `createJob: false` (its job is created when the admin clicks the button) and `resolveCandidateId` (the candidate is found from the email inside the file). See [Simera file (US-22)](#simera-file-us-22).
-
-**Settings** (optional, in `.env`):
-
-| Variable                   | Default           | Meaning                                                                                   |
-| -------------------------- | ----------------- | ----------------------------------------------------------------------------------------- |
-| `UPLOAD_STORAGE_DIR`       | `storage/uploads` | Private folder for raw files, relative to the repository root (git-ignored, never served) |
-| `MIN_EXTRACTED_TEXT_CHARS` | `50`              | Minimum extracted text length; below it, "no readable text"                               |
-
-#### `POST /api/uploads/:sourceType`
-
-- `:sourceType` is `cv` or `linkedin`.
-- Body: `multipart/form-data` with the file in a field named **`file`**.
-- Access: a logged-in candidate (`access_token` cookie) with a verified email.
-
-| Status | `reason`                | When                                                 | Message (`errors.<field>`)                                                                             |
-| ------ | ----------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `202`  |                         | Accepted and queued                                  | `{ "message": "File received, processing has started", "fileId": 7, "jobId": 7 }`                      |
-| `400`  |                         | Unknown slot                                         | `sourceType`: "Upload type must be one of: cv, linkedin"                                               |
-| `400`  |                         | No file, or not in the `file` field, or two files    | `file`: "Choose a file to upload" / "Upload exactly one file in the \"file\" field"                    |
-| `400`  | `unsupported_format`    | Wrong extension for the slot, or content ≠ extension | `file`: "This file type is not accepted. Accepted formats for the CV: PDF, DOCX" (+ `acceptedFormats`) |
-| `400`  | `corrupted_file`        | The file can't be opened or read                     | `file`: "The file is corrupted, please upload a valid file"                                            |
-| `400`  | `no_readable_text`      | Empty or nearly empty text (e.g. a scanned PDF)      | `file`: "The file has no readable text. Scanned or image-only files are not supported"                 |
-| `401`  |                         | Not logged in                                        | `auth`: "Log in to continue"                                                                           |
-| `403`  |                         | Logged in as an admin                                | `auth`: "You do not have access to this resource"                                                      |
-| `403`  | `verification_required` | The candidate's email isn't verified                 | `auth`: "Verify your email to continue"                                                                |
-| `409`  | `duplicate_file`        | The same text was already uploaded                   | `file`: "This file was already uploaded"                                                               |
-| `413`  | `file_too_large`        | Larger than 10 MB                                    | `file`: "The file is larger than 10 MB. Upload a file of 10 MB or less"                                |
-
-#### `GET /api/uploads/:fileId/raw`
-
-Downloads the original file unchanged. **Admin only.** It's always sent as an attachment with `X-Content-Type-Options: nosniff`, so the browser never renders it.
-
-| Status | When                                 | Body                                                     |
-| ------ | ------------------------------------ | -------------------------------------------------------- |
-| `200`  | Found                                | The raw bytes (`Content-Disposition: attachment`)        |
-| `400`  | `fileId` isn't a positive integer    | `errors.fileId`: "File id must be a positive integer"    |
-| `401`  | Not logged in                        | `errors.auth`: "Log in to continue"                      |
-| `403`  | Not an admin (even the file's owner) | `errors.auth`: "You do not have access to this resource" |
-| `404`  | No such file                         | `errors.fileId`: "File not found"                        |
-
-Try it with the API running (log in first so `cookies.txt` holds a candidate's cookie, see US-03):
+Run lint checks to identify code quality issues:
 
 ```bash
-curl -i -b cookies.txt -F "file=@api/test/fixtures/cv.pdf" http://localhost:3000/api/uploads/cv
-curl -i -b cookies.txt -F "file=@api/test/fixtures/linkedin.md" http://localhost:3000/api/uploads/linkedin
-
-# As an admin
-curl -b admin-cookies.txt -o raw.pdf http://localhost:3000/api/uploads/1/raw
+npm run lint
 ```
 
-Then check the database:
-
-```sql
-SELECT f.id, f.source_type, f.original_filename, f.file_size, f.mime_type,
-  f.storage_location, f.validated_at, j.id AS job_id, j.status
-FROM uploaded_files f
-JOIN processing_jobs j ON j.file_id = f.id
-ORDER BY f.id DESC;
-```
-
-**Queue dependency:** sending the job uses `enqueueJob` from `shared/src/queue.js` (pg-boss). Once the rows are committed the upload is accepted (`202`), even if sending the job fails: the job stays `queued` in `processing_jobs` and the API logs `Sending job <id> to the queue failed`. The worker sends such a job later: every `queued`/`processing` job at startup, and every minute a sweep sends `queued` jobs that have no live pg-boss job (see [worker/README.md](worker/README.md)). The tests use a fake queue and don't need it.
-
-Run the upload tests (no database, no queue needed; sample files are in `api/test/fixtures/`):
-
-```bash
-npm test -- api/test/upload.test.js --verbose
-```
-
-## Transactional Storage and Provenance (US-10)
-
-After extraction and code validation, the worker maps the validated extraction into the database structure and stores it in PostgreSQL using a transactional storage process.
-
-**Storage pipeline:**
-
-1. **Mapping (`shared/src/mapper.js`)**
-
-   `mapExtractionToStorage()` converts the validated extraction into three groups:
-   - Processing metadata, such as document language and extraction warnings.
-   - Candidate profile fields.
-   - List items, including work experience, education, languages, links, certifications, projects, awards, publications, and volunteering.
-
-   Each extracted field retains its `value`, `confidence`, and `evidence` wrapper until the storage layer processes it.
-
-   `duration_months` is not stored because experience duration is calculated when needed. Skills are handled separately in US-13.
-
-2. **Deduplication and normalization (`shared/src/deduplication.js`)**
-
-   List items use a deterministic SHA-256 deduplication key to identify matching records.
-
-   Before generating the key, values are normalized:
-   - Unicode is normalized using NFKC.
-   - Leading and trailing whitespace is removed.
-   - Text is converted to lowercase.
-   - Consecutive whitespace is collapsed into a single space.
-   - URLs are lowercased and trailing slashes are removed.
-   - Legal suffixes are stripped from company names when generating work-experience keys.
-
-   These rules make equivalent values produce consistent keys. Original extracted values are preserved for storage; normalization is used for matching.
-
-3. **Transactional storage (`shared/src/storage-writer.js`)**
-
-   `writeExtraction()` performs the database writes inside a single transaction:
-   - Verifies ownership through the user, candidate profile, uploaded file, and processing job relationships.
-   - Updates processing metadata in `processing_jobs`.
-   - Fills candidate profile columns only when their existing database values are `NULL`.
-   - Inserts new list items or updates matching items using their deduplication keys.
-   - Uses `COALESCE` so existing non-null item values are not overwritten by incoming `NULL` values.
-   - Rolls back the transaction if any storage operation fails.
-
-4. **Two-level provenance**
-
-   The storage layer preserves the origin and supporting information for extracted values:
-   - `data_provenance` records the provenance entry for a field, including its resolution method. In US-10, new entries use `no_conflict` as the resolution method.
-   - `data_provenance_sources` links that entry to the processing job and stores the source value, confidence, and evidence.
-
-   Source records are associated with their provenance entry and processing job, allowing the system to trace stored data back to the file it came from.
-
-**Worker integration:** The store step in `worker/src/steps/index.js` runs after extraction and code validation. It calls `mapExtractionToStorage()` and then `writeExtraction()` with the job's `userId`, `jobId`, and mapped data. The step is marked complete only after storage succeeds.
-
-**Scope:** US-10 implements transactional persistence, deduplication, and provenance for the first file. Comparing new extraction values against previously stored values and applying latest-value or human-review rules belong to US-15, US-16, and US-17.
-
-### Candidate file status (US-11)
-
-#### `GET /api/candidate/files`
-
-Returns all accepted CV and LinkedIn files uploaded by the currently authenticated candidate.
-
-**Authentication:** Requires a valid `access_token` cookie and a candidate account with a verified email.
-
-**Request:**
-
-- No path parameters.
-- No query parameters.
-- No request body.
-- The candidate ID is obtained from the authenticated session. Candidates can only access their own files.
-
-**Success response (`200`):**
-
-```json
-{
-  "files": [
-    {
-      "id": 12,
-      "name": "my_cv.pdf",
-      "type": "cv",
-      "uploadedAt": "2026-11-13T10:30:00.000Z",
-      "status": "Processing",
-      "message": null
-    }
-  ]
-}
-```
-
-**Response fields:**
-
-- `id`: File ID.
-- `name`: Original uploaded filename.
-- `type`: `cv` or `linkedin`.
-- `uploadedAt`: Upload timestamp.
-- `status`: User-facing processing status.
-- `message`: Failure explanation and retry instruction, or `null` when there is no failure.
-
-**Status mapping:**
-
-| Processing job status   | Candidate-facing status |
-| ----------------------- | ----------------------- |
-| `queued`                | `Processing`            |
-| `processing`            | `Processing`            |
-| `completed`             | `Completed`             |
-| `completed_with_review` | `Completed`             |
-| `failed`                | `Failed`                |
-
-Failed files include a plain-language error message and the instruction to upload an updated file to try again.
-
-**Error responses:**
-
-| Status | When                                   | Body                                                                                   |
-| ------ | -------------------------------------- | -------------------------------------------------------------------------------------- |
-| `401`  | Not logged in or invalid/expired token | `{"errors":{"auth":"Log in to continue"}}`                                             |
-| `403`  | User is not an authorized candidate    | `{"errors":{"auth":"You do not have access to this resource"}}`                        |
-| `403`  | Candidate email is not verified        | `{"errors":{"auth":"Verify your email to continue"},"reason":"verification_required"}` |
-
-**Important behavior:**
-
-- Only accepted files are returned.
-- Rejected uploads are not stored and do not appear in this list. Their rejection messages are returned directly by the upload endpoint (`POST /api/uploads/:sourceType`).
-- The frontend should refresh the list periodically while at least one file has status `Processing`.
-- Extracted data and internal human-review details are not exposed to candidates.
-
-See the shared Apidog workspace for request and response examples.
-
-### Admin candidates (US-12)
-
-Endpoints under `/api/admin` provide administrative capabilities to list, search, filter, and inspect candidate profiles and data provenance.
-
-#### `GET /api/admin/candidates`
-
-Returns a paginated list of candidate profiles with optional search, processing status filter, and pending review filter.
-
-**Authentication:** Requires a valid `access_token` cookie and an `admin` role.
-
-**Request:**
-
-- No path parameters.
-- Query parameters:
-  - `page` (optional): Positive integer (default `1`).
-  - `pageSize` (optional): Positive integer up to `100` (default `20`).
-  - `status` (optional): Filter by latest processing job status (`queued`, `processing`, `completed`, `completed_with_review`, `failed`).
-  - `hasPendingReview` (optional): `true` or `false`. When `true`, returns only candidates with at least one pending human review.
-  - `search` (optional): Case-insensitive substring match on email, first name, last name, or full name (max 100 characters).
-- No request body.
-
-**Success response (`200`):**
-
-```json
-{
-  "items": [
-    {
-      "id": 1,
-      "email": "jane@example.com",
-      "firstName": "Jane",
-      "lastName": "Doe",
-      "latestJobStatus": "completed",
-      "pendingReviewCount": 0,
-      "fileCount": 2,
-      "createdAt": "2026-11-15T10:00:00.000Z"
-    }
-  ],
-  "page": 1,
-  "pageSize": 20,
-  "total": 1
-}
-```
-
-**Response fields:**
-
-- `items`: Array of candidate summary objects.
-  - `id`: Candidate profile ID.
-  - `email`: User account email.
-  - `firstName`: Candidate first name.
-  - `lastName`: Candidate last name.
-  - `latestJobStatus`: Status of the candidate's latest processing job, or `null` if no job exists.
-  - `pendingReviewCount`: Number of non-completed human reviews for the candidate.
-  - `fileCount`: Total number of uploaded files for the candidate.
-  - `createdAt`: Profile creation timestamp.
-- `page`: Current page number.
-- `pageSize`: Number of items per page.
-- `total`: Total count of matching candidates.
-
-**Error responses:**
-
-| Status | When                                             | Body                                                            |
-| ------ | ------------------------------------------------ | --------------------------------------------------------------- |
-| `400`  | Invalid query parameter (`status`, `page`, etc.) | `{"errors":{"<field>":"<validation error message>"}}`           |
-| `401`  | Not logged in or invalid/expired token           | `{"errors":{"auth":"Log in to continue"}}`                      |
-| `403`  | User does not have admin role                    | `{"errors":{"auth":"You do not have access to this resource"}}` |
-| `500`  | Unexpected server error                          | `{"errors":{"server":"Something went wrong"}}`                  |
-
-#### `GET /api/admin/candidates/:id`
-
-Returns a candidate's complete profile, section items with per-field provenance and review markers, experience summary, and uploaded files.
-
-**Authentication:** Requires a valid `access_token` cookie and an `admin` role.
-
-**Request:**
-
-- Path parameters:
-  - `id`: Positive integer (candidate profile ID).
-- No query parameters.
-- No request body.
-
-**Success response (`200`):**
-
-```json
-{
-  "candidate": {
-    "id": 1,
-    "email": "jane@example.com",
-    "createdAt": "2026-11-15T10:00:00.000Z"
-  },
-  "profile": {
-    "first_name": {
-      "value": "Jane",
-      "resolutionMethod": "latest_value",
-      "approvedAt": "2026-11-15T10:05:00.000Z",
-      "humanReviewed": false,
-      "manualValue": false,
-      "reviewId": null,
-      "pendingReview": false,
-      "sources": [
-        {
-          "jobId": 10,
-          "fileId": 5,
-          "fileType": "cv",
-          "fileName": "cv.pdf",
-          "uploadedAt": "2026-11-15T10:00:00.000Z",
-          "value": "Jane",
-          "confidence": 0.95,
-          "evidence": "Name: Jane Doe"
-        }
-      ]
-    },
-    "last_name": { "value": "Doe", "...": "..." },
-    "headline": { "...": "..." },
-    "summary": { "...": "..." },
-    "phone": { "...": "..." },
-    "industry": { "...": "..." },
-    "profession": { "...": "..." },
-    "city": { "...": "..." },
-    "country_code": { "...": "..." }
-  },
-  "sections": {
-    "work_experience": [
-      {
-        "id": 1,
-        "months": 24,
-        "fields": {
-          "job_title": { "value": "Software Engineer", "...": "..." },
-          "company_name": { "...": "..." }
-        }
-      }
-    ],
-    "education": [
-      {
-        "id": 1,
-        "fields": {
-          "institution_name": { "...": "..." }
-        }
-      }
-    ],
-    "certifications": [],
-    "projects": [],
-    "awards": [],
-    "publications": [],
-    "volunteering": [],
-    "languages": [
-      {
-        "id": 1,
-        "fields": {
-          "language": { "...": "..." },
-          "proficiency_level": { "...": "..." }
-        }
-      }
-    ],
-    "links": [
-      {
-        "id": 1,
-        "fields": {
-          "link_type": { "...": "..." },
-          "url": { "...": "..." },
-          "label": { "...": "..." }
-        }
-      }
-    ],
-    "skills": [
-      {
-        "id": 1,
-        "skillName": "PostgreSQL",
-        "fields": {
-          "skill_id": { "...": "..." },
-          "proficiency_level": { "...": "..." },
-          "months_of_experience": { "...": "..." }
-        }
-      }
-    ]
-  },
-  "experience": {
-    "totalMonths": 36
-  },
-  "files": [
-    {
-      "id": 5,
-      "type": "cv",
-      "name": "cv.pdf",
-      "uploadedAt": "2026-11-15T10:00:00.000Z",
-      "status": "completed",
-      "failureReason": null,
-      "completedAt": "2026-11-15T10:05:00.000Z",
-      "pendingReviewCount": 0,
-      "rawUrl": "/api/uploads/5/raw"
-    }
-  ]
-}
-```
-
-**Experience months:**
-
-- `experience.totalMonths`: total months of work experience, with overlapping jobs merged. `0` when the candidate has no countable job.
-- `work_experience[].months`: months of that job, or `null` when its dates cannot be counted (for example no start date).
-- Both are calculated on read with `calculateExperienceMonths` (US-14) and never stored. A year-only start counts from January and a year-only end to December. An ongoing job counts until the current month.
-
-**FieldView shape:**
-
-Every field inside `profile` and each item's `fields` object is returned as a `FieldView`:
-
-- `value`: Current approved or stored value.
-- `resolutionMethod`: How the field value was resolved (`no_conflict`, `latest_value`, `human_reviewed`), or `null` if no provenance row exists.
-- `approvedAt`: Timestamp when the value was approved, or `null`.
-- `humanReviewed`: `true` if `resolutionMethod` is `human_reviewed`, otherwise `false`.
-- `manualValue`: `true` if `resolutionMethod` is `human_reviewed` and the field has no provenance source rows.
-- `reviewId`: ID of the human review that produced the manual value, or `null`.
-- `pendingReview`: `true` if an unresolved conflict exists for this field, otherwise `false`.
-- `sources`: Array of extraction sources that contributed to this field, sorted by `uploadedAt` then `jobId`.
-
-**Error responses:**
-
-| Status | When                                   | Body                                                                   |
-| ------ | -------------------------------------- | ---------------------------------------------------------------------- |
-| `400`  | Candidate ID is not a positive integer | `{"errors":{"candidateId":"Candidate id must be a positive integer"}}` |
-| `401`  | Not logged in or invalid/expired token | `{"errors":{"auth":"Log in to continue"}}`                             |
-| `403`  | User does not have admin role          | `{"errors":{"auth":"You do not have access to this resource"}}`        |
-| `404`  | Candidate not found                    | `{"errors":{"candidateId":"Candidate not found"}}`                     |
-| `500`  | Unexpected server error                | `{"errors":{"server":"Something went wrong"}}`                         |
-
-### Human audit log (US-20)
-
-Every human change to candidate data made during review resolution (US-18, US-19) is recorded in `human_audit_log` with the administrator who made it, the timestamp, the previous value, the new value, and an optional reason.
-
-#### `GET /api/admin/candidates/:id/history`
-
-Returns the complete chronological change history for a candidate profile, ordered newest first.
-
-**Authentication:** Requires a valid `access_token` cookie and an `admin` role.
-
-**Request:**
-
-- Path parameters:
-  - `id`: Positive integer (candidate profile ID).
-- No query parameters.
-- No request body.
-
-**Success response (`200`):**
-
-```json
-{
-  "items": [
-    {
-      "id": 1,
-      "itemType": "work_experience",
-      "itemId": "42",
-      "fieldName": "start_date",
-      "previousValue": "2019-05",
-      "newValue": "2019-08",
-      "changedBy": {
-        "adminId": 3,
-        "email": "admin@example.com"
-      },
-      "timestamp": "2026-11-15T12:00:00.000Z",
-      "reason": "Checked the CV"
-    }
-  ]
-}
-```
-
-**Response fields:**
-
-- `items`: Array of change history records, ordered by `timestamp DESC`, then `id DESC`.
-  - `id`: Unique audit log row ID.
-  - `itemType`: Target entity type (`provenance_item_type`).
-  - `itemId`: Target entity record ID (as string).
-  - `fieldName`: Specific field changed.
-  - `previousValue`: Field value before change (deserialized JSON value).
-  - `newValue`: Field value after change (deserialized JSON value).
-  - `changedBy`: Object identifying the administrator:
-    - `adminId`: Administrator ID (`admins.id`).
-    - `email`: Administrator email (`users.email`).
-  - `timestamp`: Timestamp when the change occurred.
-  - `reason`: Optional human-supplied explanation, or `null`.
-
-**Error responses:**
-
-| Status | When                                   | Body                                                                   |
-| ------ | -------------------------------------- | ---------------------------------------------------------------------- |
-| `400`  | Candidate ID is not a positive integer | `{"errors":{"candidateId":"Candidate id must be a positive integer"}}` |
-| `401`  | Not logged in or invalid/expired token | `{"errors":{"auth":"Log in to continue"}}`                             |
-| `403`  | User does not have admin role          | `{"errors":{"auth":"You do not have access to this resource"}}`        |
-| `404`  | Candidate not found                    | `{"errors":{"candidateId":"Candidate not found"}}`                     |
-| `500`  | Unexpected server error                | `{"errors":{"server":"Something went wrong"}}`                         |
-
-#### Shared service contract (`recordHumanChange`)
-
-`shared/src/audit/human-audit.js` exports:
-
-- `recordHumanChange(client, options)`: Records a human change within the caller's transaction.
-  - `client`: Active PostgreSQL transaction client.
-  - `options`:
-    - `candidateId`: Positive integer (`candidate_profiles.id`).
-    - `itemType`: Valid `provenance_item_type` enum value.
-    - `itemId`: Positive integer or digit string (stored as text).
-    - `fieldName`: Non-empty string up to 150 characters.
-    - `previousValue`: Previous value (stored as JSONB).
-    - `newValue`: New value (stored as JSONB).
-    - `changedBy`: Positive integer administrator ID (`admins.id`).
-    - `reason`: Optional text string or `null` (default `null`).
-    - `timestamp`: Optional `Date` instance (default `new Date()`).
-  - **Behavior**:
-    - Equal values (deep comparison after stable key sort, or both null/undefined) write nothing and return `null`.
-    - Otherwise inserts a single row into `human_audit_log` and returns the inserted row.
-    - Invalid parameters throw `TypeError`.
-- `getAdminIdForUser(client, userId)`: Resolves an administrator ID (`admins.id`) for a given user ID (`users.id`), returning the integer ID or `null`.
-
-### Simera file (US-22)
-
-The Simera file is a JSON that simulates a candidate already registered on the Simera platform. The candidate never uploads it: the dev team uploads it for a candidate who has registered and verified their email, and the admin sends it to processing from the candidate page. After that it goes through the **same pipeline** as a CV or LinkedIn file (extract text → email check → LLM → skills → validation → store). The raw JSON text is the file text.
-
-- `uploaded_files.source_type = simera_profile`, `.json`, `application/json`.
-- **One job per file**, created only by the admin's click (not at upload). An updated JSON (different text) is a new file with its own job.
-- The Latest order counts from the click: the job is created then, and jobs of the same candidate run in creation order.
-- No source is preferred: Simera data is compared with the stored data like any other file.
-
-**The JSON** must be an object with the candidate's login email in a top-level `"email"` string. Every other field is free; the LLM extracts it like a CV. Demo files are in `api/scripts/simera-demo/`. The test fixture `shared/test/fixtures/simera-profile.json` deliberately uses other field names (`experience`, `title`, a `links` object…): there's no fixed Simera schema, and both shapes must work.
-
-```json
-{
-  "email": "john.doe@simera.local",
-  "first_name": "John",
-  "headline": "Backend Developer",
-  "city": "Ramallah"
-}
-```
-
-#### `POST /api/admin/simera-files`
-
-Uploads a Simera JSON. **Admin only.** Body: `multipart/form-data` with the file in a field named **`file`**.
-
-Checks, in order: `.json` and valid UTF-8 JSON → size ≤ 10 MB → text not nearly empty → text hash not a duplicate → top-level `email` belongs to a registered, verified candidate → raw file saved + `uploaded_files` row. **No job is created.** Any rejection saves nothing.
-
-| Status | `reason`                      | When                                                 | Message (`errors.file`)                                                                                            |
-| ------ | ----------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `201`  |                               | Saved                                                | `{ "message": "Simera file saved. Send it to processing from the candidate page", "fileId": 5, "candidateId": 2 }` |
-| `400`  |                               | No file in the `file` field                          | "Choose a file to upload"                                                                                          |
-| `400`  | `unsupported_format`          | Not `.json`, or not valid JSON                       | "This file type is not accepted. Accepted formats for the Simera file: JSON"                                       |
-| `400`  | `no_readable_text`            | Nearly empty JSON (under `MIN_EXTRACTED_TEXT_CHARS`) | "The file has no readable text. Scanned or image-only files are not supported"                                     |
-| `400`  | `simera_email_missing`        | Not an object, or no non-empty string `email`        | "The Simera file must be a JSON object with a top-level \"email\" field"                                           |
-| `401`  |                               | Not logged in                                        | `errors.auth`: "Log in to continue"                                                                                |
-| `403`  |                               | Not an admin                                         | `errors.auth`: "You do not have access to this resource"                                                           |
-| `409`  | `duplicate_file`              | The same text was already uploaded                   | "This file was already uploaded"                                                                                   |
-| `413`  | `file_too_large`              | Larger than 10 MB                                    | "The file is larger than 10 MB. Upload a file of 10 MB or less"                                                    |
-| `422`  | `simera_email_not_registered` | No candidate with that email                         | "No registered candidate has the email in this Simera file"                                                        |
-| `422`  | `simera_email_not_verified`   | The candidate hasn't verified the email              | "The candidate with the email in this Simera file has not verified their email yet"                                |
-
-#### `GET /api/admin/candidates/:id/simera`
-
-The "Simera file" section of the candidate page: the candidate's **newest** Simera file, its status, and whether the button is enabled. **Admin only.**
-
-```json
-{
-  "candidateId": 2,
-  "file": {
-    "id": 5,
-    "name": "john-doe-v1.json",
-    "uploadedAt": "2026-11-16T10:00:00.000Z",
-    "rawUrl": "/api/uploads/5/raw"
-  },
-  "job": {
-    "id": 9,
-    "status": "processing",
-    "createdAt": "2026-11-16T10:05:00.000Z",
-    "startedAt": "2026-11-16T10:05:01.000Z",
-    "completedAt": null,
-    "failureReason": null,
-    "pendingReviewCount": null
-  },
-  "status": "processing",
-  "canSend": false,
-  "disabledReason": "This Simera file is being processed"
-}
-```
-
-| Situation                                                                         | `status`     | `job`  | `canSend` | `disabledReason`                                           |
-| --------------------------------------------------------------------------------- | ------------ | ------ | --------- | ---------------------------------------------------------- |
-| No Simera file (`file: null`)                                                     | `null`       | `null` | `false`   | "No Simera file exists for this candidate"                 |
-| File, not sent yet                                                                | `not_sent`   | `null` | `true`    | `null`                                                     |
-| File not sent, but an older Simera file of the candidate is `queued`/`processing` | `not_sent`   | `null` | `false`   | "Another Simera file of this candidate is being processed" |
-| Job `queued` or `processing`                                                      | `processing` | object | `false`   | "This Simera file is being processed"                      |
-| Job `completed` or `completed_with_review`                                        | `completed`  | object | `false`   | "This Simera file was already sent to processing"          |
-| Job `failed` (see `job.failureReason`; never rerun)                               | `failed`     | object | `false`   | "Processing failed. Upload a corrected Simera file"        |
-
-`job.status` is the internal status. Every internal status is mapped explicitly; an unknown one is a `500`, never shown as completed. Errors: `400` bad id, `401`, `403`, `404` `errors.candidateId`: "Candidate not found".
-
-#### `POST /api/admin/candidates/:id/simera/send`
-
-"Send Simera file to processing". **Admin only.** No body. Creates the one job of the candidate's newest Simera file and sends it to the queue. It's refused while any Simera job of the candidate is `queued` or `processing`. The check and the insert run in one transaction that locks the candidate row, so clicks at the same time (two admins, or a double click) are decided one after the other; `processing_jobs.file_id` is unique as a second guard. If sending to the queue fails, the click is still accepted: the job stays `queued` and the worker's sweep sends it within about a minute (see [worker/README.md](worker/README.md)).
-
-| Status | `reason`              | When                                                              | Body                                                                                                                |
-| ------ | --------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `202`  |                       | Job created                                                       | `{ "message": "Simera file sent to processing", "fileId": 5, "jobId": 9 }`                                          |
-| `400`  |                       | Bad candidate id                                                  | `errors.candidateId`: "Candidate id must be a positive integer"                                                     |
-| `401`  |                       | Not logged in                                                     | `errors.auth`: "Log in to continue"                                                                                 |
-| `403`  |                       | Not an admin                                                      | `errors.auth`: "You do not have access to this resource"                                                            |
-| `404`  |                       | No such candidate                                                 | `errors.candidateId`: "Candidate not found"                                                                         |
-| `409`  | `no_simera_file`      | No Simera file                                                    | `errors.simera`: "No Simera file exists for this candidate"                                                         |
-| `409`  | `simera_processing`   | Its job, or another Simera job of the candidate, is still running | `errors.simera`: "This Simera file is being processed" / "Another Simera file of this candidate is being processed" |
-| `409`  | `simera_already_sent` | Already sent and completed                                        | `errors.simera`: "This Simera file was already sent to processing"                                                  |
-| `409`  | `simera_failed`       | Its job failed (never rerun)                                      | `errors.simera`: "Processing failed. Upload a corrected Simera file"                                                |
-
-#### Try it
-
-With the API (and the worker, to process the job) running.
-
-**The demo files' top-level `email` must belong to a candidate who is registered and has verified their email in your dev database**, otherwise the upload is rejected with `422`. Either register and verify a candidate yourself and put that email in the files, or seed the sample candidate (`npm run seed:candidates --workspace=shared`, already verified) and use `john.doe@simera.local`. File paths given to the script are relative to the folder you run it from (Node 22).
-
-```bash
-# Upload demo files as the dev team (logs in with ADMIN_EMAIL / ADMIN_PASSWORD from .env;
-# set API_URL if the API is not on http://localhost:<API_PORT>)
-npm run simera:upload --workspace=api -- api/scripts/simera-demo/john-doe-v1.json
-
-# Or with curl, logged in as the admin (admin-cookies.txt, see US-03)
-curl -i -b admin-cookies.txt -F "file=@api/scripts/simera-demo/john-doe-v1.json" \
-  http://localhost:3000/api/admin/simera-files
-
-# Section state, then the button (replace 2 with the candidateId from the upload)
-curl -b admin-cookies.txt http://localhost:3000/api/admin/candidates/2/simera
-curl -i -b admin-cookies.txt -X POST http://localhost:3000/api/admin/candidates/2/simera/send
-```
-
-`john-doe-v2.json` is an updated version (different headline and city): uploading it after v1 is a new file, and the button is enabled again.
-
-> **Known dependency:** comparing with the stored data and applying the Latest rules (for example a different Simera city handled by rule B2) needs the compare step to be wired into the worker (US-17). Until then that step is a stub, as for every other source.
-
-Run the tests. `admin-simera.test.js` needs no database or queue; `admin-simera-db.test.js` runs the send button on the real `simera_test` database (`TEST_DATABASE_URL`), including clicks at the same time:
-
-```bash
-npm test -- api/test/admin-simera.test.js --verbose
-npm test -- api/test/admin-simera-db.test.js --verbose
-```
-
-### Unknown skills review (US-19)
-
-Unknown skills detected during candidate CV or profile extraction that could not be linked to the canonical skills catalog (US-13) are stored in `unknown_skills` with status `pending`. Administrators can review these unknown skills by linking them to an existing canonical skill, adding them as a new canonical skill, or rejecting them.
-
-#### `GET /api/admin/unknown-skills`
-
-Returns a paginated list of unknown skills with optional filtering by status and candidate ID, ordered newest first (`created_at DESC, id DESC`).
-
-**Authentication:** Requires a valid `access_token` cookie and an `admin` role.
-
-**Request:**
-
-- Query parameters:
-  - `status`: Optional filter (`pending`, `accepted`, `rejected`). Defaults to `pending`.
-  - `candidateId`: Optional candidate profile ID filter (positive integer).
-  - `page`: Optional page number (positive integer, default `1`).
-  - `pageSize`: Optional page size (positive integer `1` to `100`, default `20`).
-
-**Success response (`200`):**
-
-```json
-{
-  "items": [
-    {
-      "id": 1,
-      "skillName": "Nodejs v18",
-      "status": "pending",
-      "confidence": 0.85,
-      "evidence": "Extracted from technical experience",
-      "createdAt": "2026-11-16T10:00:00.000Z",
-      "resolvedAt": null,
-      "resolvedSkill": null,
-      "candidate": {
-        "id": 10,
-        "firstName": "Jane",
-        "lastName": "Doe",
-        "email": "jane@example.com"
-      },
-      "sourceFile": {
-        "id": 5,
-        "sourceType": "cv",
-        "originalFilename": "resume.pdf",
-        "uploadedAt": "2026-11-16T09:30:00.000Z"
-      }
-    }
-  ],
-  "page": 1,
-  "pageSize": 20,
-  "total": 1
-}
-```
-
-**Error responses:**
-
-| Status | When                                                                  | Body                                                                         |
-| ------ | --------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| `400`  | Invalid query parameter (`status`, `candidateId`, `page`, `pageSize`) | `{"errors":{"status":"Status must be one of: pending, accepted, rejected"}}` |
-| `401`  | Not logged in or invalid/expired token                                | `{"errors":{"auth":"Log in to continue"}}`                                   |
-| `403`  | User does not have admin role                                         | `{"errors":{"auth":"You do not have access to this resource"}}`              |
-| `500`  | Unexpected server error                                               | `{"errors":{"server":"Something went wrong"}}`                               |
-
-#### `GET /api/admin/unknown-skills/:id`
-
-Returns the detailed record of a single unknown skill.
-
-**Authentication:** Requires a valid `access_token` cookie and an `admin` role.
-
-**Request:**
-
-- Path parameters:
-  - `id`: Positive integer (unknown skill ID).
-
-**Success response (`200`):**
-
-```json
-{
-  "id": 1,
-  "skillName": "Nodejs v18",
-  "status": "pending",
-  "confidence": 0.85,
-  "evidence": "Extracted from technical experience",
-  "createdAt": "2026-11-16T10:00:00.000Z",
-  "resolvedAt": null,
-  "resolvedSkill": null,
-  "candidate": {
-    "id": 10,
-    "firstName": "Jane",
-    "lastName": "Doe",
-    "email": "jane@example.com"
-  },
-  "sourceFile": {
-    "id": 5,
-    "sourceType": "cv",
-    "originalFilename": "resume.pdf",
-    "uploadedAt": "2026-11-16T09:30:00.000Z"
-  }
-}
-```
-
-**Error responses:**
-
-| Status | When                                       | Body                                                                          |
-| ------ | ------------------------------------------ | ----------------------------------------------------------------------------- |
-| `400`  | Unknown skill ID is not a positive integer | `{"errors":{"unknownSkillId":"Unknown skill id must be a positive integer"}}` |
-| `401`  | Not logged in or invalid/expired token     | `{"errors":{"auth":"Log in to continue"}}`                                    |
-| `403`  | User does not have admin role              | `{"errors":{"auth":"You do not have access to this resource"}}`               |
-| `404`  | Unknown skill not found                    | `{"errors":{"unknownSkillId":"Unknown skill not found"}}`                     |
-| `500`  | Unexpected server error                    | `{"errors":{"server":"Something went wrong"}}`                                |
-
-#### `GET /api/admin/skills/search`
-
-Searches canonical skills using fuzzy matching (Fuse.js) against `skills.canonical_name`.
-
-**Authentication:** Requires a valid `access_token` cookie and an `admin` role.
-
-**Request:**
-
-- Query parameters:
-  - `q`: Search query string (required, trimmed length 1 to 100 characters).
-
-**Success response (`200`):**
-
-```json
-{
-  "items": [
-    {
-      "id": 2,
-      "canonicalName": "Node.js",
-      "similarity": 0.88
-    }
-  ]
-}
-```
-
-Returns up to 20 results sorted by similarity in descending order.
-
-**Error responses:**
-
-| Status | When                                   | Body                                                            |
-| ------ | -------------------------------------- | --------------------------------------------------------------- |
-| `400`  | `q` missing or empty after trim        | `{"errors":{"q":"Query is required"}}`                          |
-| `400`  | `q` longer than 100 characters         | `{"errors":{"q":"Query must be at most 100 characters"}}`       |
-| `401`  | Not logged in or invalid/expired token | `{"errors":{"auth":"Log in to continue"}}`                      |
-| `403`  | User does not have admin role          | `{"errors":{"auth":"You do not have access to this resource"}}` |
-| `500`  | Unexpected server error                | `{"errors":{"server":"Something went wrong"}}`                  |
-
-#### `POST /api/admin/unknown-skills/:id/resolve`
-
-Resolves an unknown skill by linking it to an existing canonical skill, adding it as a new canonical skill, or rejecting it.
-
-**Authentication:** Requires a valid `access_token` cookie and an `admin` role.
-
-**Request:**
-
-- Path parameters:
-  - `id`: Positive integer (unknown skill ID).
-- Request body:
-  ```json
-  {
-    "action": "link",
-    "skillId": 2,
-    "confidence": 0.9,
-    "reason": "Canonical version matches"
-  }
-  ```
-  - `action`: Required string (`link`, `add`, `reject`).
-  - `skillId`: Positive integer (required for `action = 'link'`).
-  - `canonicalName`: String 1 to 500 characters after trim (required for `action = 'add'`).
-  - `confidence`: Number between `0` and `1` (required).
-  - `reason`: Optional human justification up to 1000 characters.
-
-**Success response (`200`):**
-
-```json
-{
-  "unknownSkill": {
-    "id": 1,
-    "skillName": "Nodejs v18",
-    "status": "accepted",
-    "confidence": 0.85,
-    "evidence": "Extracted from technical experience",
-    "createdAt": "2026-11-16T10:00:00.000Z",
-    "resolvedAt": "2026-11-16T10:15:00.000Z",
-    "resolvedSkill": {
-      "id": 2,
-      "canonicalName": "Node.js"
-    },
-    "candidate": {
-      "id": 10,
-      "firstName": "Jane",
-      "lastName": "Doe",
-      "email": "jane@example.com"
-    },
-    "sourceFile": {
-      "id": 5,
-      "sourceType": "cv",
-      "originalFilename": "resume.pdf",
-      "uploadedAt": "2026-11-16T09:30:00.000Z"
-    }
-  },
-  "candidateSkillId": 14,
-  "created": true
-}
-```
-
-**Resolution transaction rules (D2):**
-
-1. **Transaction & Row Lock**: Runs in a single transaction on one dedicated client, acquiring an exclusive lock (`SELECT ... FOR UPDATE`) on the `unknown_skills` row.
-2. **Status check**: If the row does not exist, returns `404`. If `status != 'pending'`, returns `409` (`{"errors":{"unknownSkillId":"Unknown skill already resolved"}}`).
-3. **Link action**: Verifies `skillId` exists in `skills`; returns `400` (`{"errors":{"skillId":"Skill not found"}}`) if absent.
-4. **Add action**: Performs a case-insensitive check against `skills.canonical_name`. If already present, returns `409` (`{"errors":{"canonicalName":"Skill already exists, link it instead"},"existingSkillId":<id>}`). Otherwise, inserts the canonical name into `skills`.
-5. **Candidate skills association (`link` & `add`)**:
-   - Inserts `candidate_skills (candidate_id, skill_id, created_at) ... ON CONFLICT (candidate_id, skill_id) DO NOTHING RETURNING id`.
-   - If no row returned (candidate already possessed the skill), reads existing row ID (`created = false`).
-   - Only when a new candidate skill was created (`created = true`):
-     - Upserts `data_provenance` (`item_type = 'candidate_skills'`, `item_id = candidateSkillId`, `field_name = 'skill_id'`, `resolution_method = 'human_reviewed'`, `approved_at = NOW()`). No `data_provenance_sources` row is created.
-     - Records human change via `recordHumanChange(client, { candidateId, itemType: 'candidate_skills', itemId: candidateSkillId, fieldName: 'skill_id', previousValue: null, newValue: targetSkillId, changedBy: adminId, reason })`.
-   - Updates `unknown_skills` with `status = 'accepted'`, `resolved_skill_id = targetSkillId`, and `resolved_at = NOW()`.
-6. **Reject action**:
-   - Updates `unknown_skills` with `status = 'rejected'` and `resolved_at = NOW()`. `resolved_skill_id` remains `null`.
-   - Leaves candidate skills untouched; creates no candidate skills, no provenance, and no audit log.
-7. **Human review completion**:
-   - Queries `human_reviews` for an existing row (`review_target_type = 'unknown_skill'`, `item_id = unknown_skills.id`, `review_status IN ('pending', 'in_review')`).
-   - If present: updates to `review_status = 'completed'`, setting `admin_id`, `reviewed_at = NOW()`, `review_result` (`linked:<id>`, `added:<id>`, or `rejected`), and `confidence`.
-   - If none exists (e.g. US-17 pending): inserts a completed `human_reviews` record.
-
-**Error responses:**
-
-| Status | When                                                         | Body                                                                                          |
-| ------ | ------------------------------------------------------------ | --------------------------------------------------------------------------------------------- |
-| `400`  | Missing or invalid fields in body or path                    | `{"errors":{"<field>":"<message>"}}`                                                          |
-| `400`  | Confidence missing                                           | `{"errors":{"confidence":"Confidence is required"}}`                                          |
-| `400`  | Confidence outside 0..1                                      | `{"errors":{"confidence":"Confidence must be between 0 and 1"}}`                              |
-| `400`  | `link` action with non-existent `skillId`                    | `{"errors":{"skillId":"Skill not found"}}`                                                    |
-| `401`  | Not logged in or invalid/expired token                       | `{"errors":{"auth":"Log in to continue"}}`                                                    |
-| `403`  | User does not have admin role                                | `{"errors":{"auth":"You do not have access to this resource"}}`                               |
-| `404`  | Unknown skill not found                                      | `{"errors":{"unknownSkillId":"Unknown skill not found"}}`                                     |
-| `409`  | Unknown skill already resolved                               | `{"errors":{"unknownSkillId":"Unknown skill already resolved"}}`                              |
-| `409`  | `add` action with existing canonical name (case-insensitive) | `{"errors":{"canonicalName":"Skill already exists, link it instead"},"existingSkillId":<id>}` |
-| `500`  | Unexpected server error                                      | `{"errors":{"server":"Something went wrong"}}`                                                |
-
-### Admin review queue (US-18)
-
-Reviews generated during CV/profile processing (conflicts, intra-source conflicts, low confidence values, validation failures, and uncertain item matches) are placed in the `human_reviews` queue. Administrators can inspect queue items, examine conflict options alongside raw uploaded source documents, and resolve conflicts in a single atomic transaction.
-
-#### `GET /api/admin/reviews`
-
-Returns a paginated list of review queue items with optional filtering by status, reason, and candidate ID, ordered newest first (`created_at DESC, id DESC`).
-
-**Authentication:** Requires a valid `access_token` cookie and an `admin` role.
-
-**Request:**
-
-- Query parameters:
-  - `status`: Optional filter (`pending`, `in_review`, `completed`). Defaults to `pending`.
-  - `reason`: Optional filter (`conflict`, `intra_source_conflict`, `low_confidence`, `validation_failure`, `item_match_uncertain`, `unknown_skill`).
-  - `candidateId`: Optional candidate profile ID filter (positive integer).
-  - `page`: Optional page number (positive integer, default `1`).
-  - `pageSize`: Optional page size (positive integer `1` to `100`, default `20`).
-
-**Success response (`200`):**
-
-```json
-{
-  "items": [
-    {
-      "id": 1,
-      "reason": "conflict",
-      "status": "pending",
-      "targetType": "conflict",
-      "createdAt": "2026-11-16T10:00:00.000Z",
-      "candidate": {
-        "id": 10,
-        "firstName": "Layla",
-        "lastName": "Khoury",
-        "email": "layla@example.com"
-      },
-      "itemType": "work_experience",
-      "itemId": "42",
-      "fieldName": "start_date",
-      "unknownSkillId": null
-    },
-    {
-      "id": 2,
-      "reason": "unknown_skill",
-      "status": "pending",
-      "targetType": "unknown_skill",
-      "createdAt": "2026-11-16T10:05:00.000Z",
-      "candidate": {
-        "id": 10,
-        "firstName": "Layla",
-        "lastName": "Khoury",
-        "email": "layla@example.com"
-      },
-      "itemType": "candidate_skills",
-      "itemId": null,
-      "fieldName": null,
-      "unknownSkillId": 15
-    }
-  ],
-  "page": 1,
-  "pageSize": 20,
-  "total": 2
-}
-```
-
-#### `GET /api/admin/reviews/:id`
-
-Retrieves detailed information for a single review item. For conflict reviews, returns candidate details, conflict metadata, the current stored value from the candidate profile, and all competing options with source file metadata and raw document links. For unknown skill reviews, returns candidate details and the `unknownSkillId` to link to US-19 resolution. Opening the detail view does not alter the review status.
-
-**Authentication:** Requires a valid `access_token` cookie and an `admin` role.
-
-**Request:**
-
-- Path parameters:
-  - `id`: Review ID (positive integer).
-
-**Success response (`200`) — Conflict review:**
-
-```json
-{
-  "id": 1,
-  "reason": "conflict",
-  "status": "pending",
-  "targetType": "conflict",
-  "createdAt": "2026-11-16T10:00:00.000Z",
-  "candidate": {
-    "id": 10,
-    "firstName": "Layla",
-    "lastName": "Khoury",
-    "email": "layla@example.com"
-  },
-  "conflict": {
-    "id": 5,
-    "itemType": "work_experience",
-    "itemId": "42",
-    "fieldName": "start_date",
-    "status": "pending"
-  },
-  "storedValue": "2019-05",
-  "options": [
-    {
-      "id": 101,
-      "value": "2019-05",
-      "confidence": 0.88,
-      "evidence": "May 2019 start in experience",
-      "sourceFile": {
-        "id": 12,
-        "sourceType": "cv",
-        "originalFilename": "resume_2019.pdf",
-        "uploadedAt": "2026-11-16T09:00:00.000Z",
-        "rawUrl": "/api/uploads/12/raw"
-      }
-    },
-    {
-      "id": 102,
-      "value": "2019-08",
-      "confidence": 0.94,
-      "evidence": "August 2019 updated header",
-      "sourceFile": {
-        "id": 14,
-        "sourceType": "cv",
-        "originalFilename": "resume_2022.pdf",
-        "uploadedAt": "2026-11-16T09:30:00.000Z",
-        "rawUrl": "/api/uploads/14/raw"
-      }
-    }
-  ]
-}
-```
-
-_Note for C3 (`item_match_uncertain`):_ `fieldName` is `'__item__'`, and `storedValue` returns the entire existing item row (restricted to whitelisted columns).
-
-**Success response (`200`) — Unknown skill review:**
-
-```json
-{
-  "id": 2,
-  "reason": "unknown_skill",
-  "status": "pending",
-  "targetType": "unknown_skill",
-  "createdAt": "2026-11-16T10:05:00.000Z",
-  "candidate": {
-    "id": 10,
-    "firstName": "Layla",
-    "lastName": "Khoury",
-    "email": "layla@example.com"
-  },
-  "unknownSkillId": 15
-}
-```
-
-#### `POST /api/admin/reviews/:id/resolve`
-
-Resolves a review within a single atomic database transaction using row-level locking (`FOR UPDATE`). Updates the target profile item, recomputes deduplication keys when key fields change, updates conflict and review statuses, upserts provenance records to `human_reviewed` (clearing source file associations), and records a `human_audit_log` entry when values change.
-
-**Authentication:** Requires a valid `access_token` cookie and an `admin` role.
-
-**Request:**
-
-- Path parameters:
-  - `id`: Review ID (positive integer).
-- Body (`application/json`):
-  - `action`: Required string enum (`choose`, `manual`, `merge`, `add`).
-  - `optionId`: Required when `action === 'choose'` (integer ID of the conflict option).
-  - `value`: Required when `action === 'manual'` (new value matching column data type; `null` allowed for nullable columns).
-  - `confidence`: Required number between `0` and `1` (inclusive).
-  - `reason`: Optional string explaining the resolution decision.
-
-**Resolution Actions:**
-
-1. `choose`: Applies the selected `optionId` value to the conflict field.
-2. `manual`: Applies the specified manual value to the conflict field, marking it as human reviewed without source file backing.
-3. `merge` (C3 `item_match_uncertain` only): Merges the candidate item into the existing stored item by filling only empty (`null` or empty string) columns from the candidate item. Never overwrites existing non-empty values.
-4. `add` (C3 `item_match_uncertain` only): Inserts the candidate item as a new, distinct item for the candidate.
-
-**Key Collision Safety (D11):**
-When a resolved value modifies any deduplication key column (e.g., `company_name`, `job_title`, or `start_date` on work experience), the deduplication key is recomputed. If the resulting key collides with another existing item for the same candidate, the transaction aborts with `409 Conflict` and rolls back all changes.
-
-**Non-Freeze Invariant (AC9):**
-Setting a human-reviewed value does not permanently freeze the field. Subsequent file uploads with valid new values (B2 rules) will update the field and clear the human-reviewed flag normally.
-
-**Success response (`200`):**
-
-```json
-{
-  "review": {
-    "id": 1,
-    "reason": "conflict",
-    "status": "completed",
-    "targetType": "conflict",
-    "createdAt": "2026-11-16T10:00:00.000Z",
-    "candidate": {
-      "id": 10,
-      "firstName": "Layla",
-      "lastName": "Khoury",
-      "email": "layla@example.com"
-    },
-    "conflict": {
-      "id": 5,
-      "itemType": "work_experience",
-      "itemId": "42",
-      "fieldName": "start_date",
-      "status": "resolved"
-    },
-    "storedValue": "2019-08",
-    "options": []
-  },
-  "applied": {
-    "itemType": "work_experience",
-    "itemId": "42",
-    "fieldName": "start_date",
-    "previousValue": "2019-05",
-    "newValue": "2019-08"
-  }
-}
-```
-
-- `review`: the same shape as `GET /api/admin/reviews/:id`, read after the change (`options` is shortened here).
-- `applied` depends on the action:
-  - `choose`, `manual`: `{ itemType, itemId, fieldName, previousValue, newValue }`
-  - `merge`: `{ itemType, itemId, filledFields }` (the columns that were empty and are now filled)
-  - `add`: `{ itemType, newItemId }`
-
-#### Error responses
-
-| Status | When                                                                                       | Body                                                                                                                                   |
-| ------ | ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `400`  | Invalid query parameter in listing (`page`, `pageSize`, `status`, `reason`, `candidateId`) | `{"errors":{"<field>":"<message>"}}`                                                                                                   |
-| `400`  | Invalid review ID in path                                                                  | `{"errors":{"reviewId":"Review id must be a positive integer"}}`                                                                       |
-| `400`  | Confidence missing                                                                         | `{"errors":{"confidence":"Confidence is required"}}`                                                                                   |
-| `400`  | Confidence outside 0..1                                                                    | `{"errors":{"confidence":"Confidence must be a number between 0 and 1"}}`                                                              |
-| `400`  | Invalid or missing action                                                                  | `{"errors":{"action":"Action must be one of: choose, manual, merge, add"}}`                                                            |
-| `400`  | `choose` action with missing `optionId`                                                    | `{"errors":{"optionId":"optionId is required when action is choose"}}`                                                                 |
-| `400`  | `choose` action with `optionId` belonging to another conflict                              | `{"errors":{"optionId":"Option does not belong to this conflict"}}`                                                                    |
-| `400`  | `manual` action with missing `value`                                                       | `{"errors":{"value":"Value is required for manual action"}}`                                                                           |
-| `400`  | `manual` action value does not match column type                                           | `{"errors":{"value":"<Type validation error>"}}`                                                                                       |
-| `400`  | `merge` or `add` requested on a non-C3 review                                              | `{"errors":{"action":"Action merge/add is only valid for item_match_uncertain conflicts"}}`                                            |
-| `400`  | `choose` or `manual` requested on a C3 review                                              | `{"errors":{"action":"Action choose/manual is not valid for item_match_uncertain conflicts"}}`                                         |
-| `401`  | Not logged in or invalid/expired session token                                             | `{"errors":{"auth":"Log in to continue"}}`                                                                                             |
-| `403`  | User does not have admin role (e.g. candidate user)                                        | `{"errors":{"auth":"You do not have access to this resource"}}`                                                                        |
-| `404`  | Review not found                                                                           | `{"errors":{"reviewId":"Review not found"}}`                                                                                           |
-| `409`  | Attempting to resolve an `unknown_skill` review via reviews endpoint                       | `{"errors":{"reviewId":"Unknown skill reviews must be resolved through /api/admin/unknown-skills/:id/resolve","unknownSkillId":<id>}}` |
-| `409`  | Review is already completed                                                                | `{"errors":{"reviewId":"Review is already completed"}}`                                                                                |
-| `409`  | Conflict is already resolved                                                               | `{"errors":{"conflictId":"Conflict is already resolved"}}`                                                                             |
-| `409`  | Deduplication key collision with existing item                                             | `{"errors":{"deduplicationKey":"An item with the same deduplication key already exists for this candidate"}}`                          |
-| `500`  | Unexpected server error                                                                    | `{"errors":{"server":"Something went wrong"}}`                                                                                         |
-
-### Security and permissions (US-24)
-
-Automated security verification covering endpoint permissions, cross-candidate data isolation, password storage, log sanitization, safe file handling, and prompt injection defenses.
-
-#### Permissions matrix
-
-The table below defines expected responses across all endpoints on develop for unauthenticated requests, candidates, and administrators. This matrix is defined in `api/test/security/permissions-matrix.js` and verified by table-driven automated tests in `api/test/security/permissions.test.js`.
-
-| Method | Path                                    | Public | No Auth | Candidate | Admin  | Description                                                       |
-| ------ | --------------------------------------- | :----: | :-----: | :-------: | :----: | ----------------------------------------------------------------- |
-| `POST` | `/api/auth/register`                    |  Yes   |   201   |  public   | public | Register candidate account                                        |
-| `POST` | `/api/auth/verify-otp`                  |  Yes   | public  |  public   | public | Verify email with OTP code                                        |
-| `POST` | `/api/auth/resend-otp`                  |  Yes   | public  |  public   | public | Resend OTP verification code                                      |
-| `POST` | `/api/auth/login`                       |  Yes   | public  |  public   | public | Authenticate with email and password                              |
-| `POST` | `/api/auth/logout`                      |  Yes   |   200   |  public   | public | Clear session authentication cookie                               |
-| `GET`  | `/api/auth/me`                          |   No   |   401   |    200    |  200   | Get authenticated user profile and role                           |
-| `POST` | `/api/uploads/cv`                       |   No   |   401   |   202*    |  403   | Upload candidate CV (PDF or DOCX) (*400 if no file attached)      |
-| `POST` | `/api/uploads/linkedin`                 |   No   |   401   |   202*    |  403   | Upload LinkedIn export file (Markdown) (*400 if no file attached) |
-| `GET`  | `/api/uploads/:fileId/raw`              |   No   |   401   |    403    |  200   | Download raw uploaded file (admin only)                           |
-| `GET`  | `/api/candidate/files`                  |   No   |   401   |    200    |  403   | List files for authenticated candidate                            |
-| `GET`  | `/api/admin/candidates`                 |   No   |   401   |    403    |  200   | List candidate profiles with search and pagination                |
-| `GET`  | `/api/admin/candidates/:id`             |   No   |   401   |    403    |  200   | Get single candidate profile details                              |
-| `GET`  | `/api/admin/candidates/:id/history`     |   No   |   401   |    403    |  200   | Get candidate audit change history                                |
-| `GET`  | `/api/admin/unknown-skills`             |   No   |   401   |    403    |  200   | List unknown skills waiting for review                            |
-| `GET`  | `/api/admin/unknown-skills/:id`         |   No   |   401   |    403    |  200   | Get one unknown skill                                             |
-| `GET`  | `/api/admin/skills/search`              |   No   |   401   |    403    |  200   | Search canonical skills                                           |
-| `POST` | `/api/admin/unknown-skills/:id/resolve` |   No   |   401   |    403    |  200   | Resolve an unknown skill (link, add or reject)                    |
-
-`public` means the test checks that the route never answers 401 or 403 for that caller. The exact status is checked only where the table gives a number.
-
-#### What each security test proves
-
-- **`api/test/security/permissions.test.js`**:
-  - **Permissions matrix**: verifies that unauthenticated requests receive 401 for protected routes (and proper status for public auth routes), candidates access only candidate routes, and administrators access only admin routes.
-  - **Auth before file parsing**: verifies that non-candidates and unauthenticated callers receive 401/403 before any file parsing or payload upload occurs.
-  - **Cross-candidate isolation**: verifies that candidate B never sees candidate A's files via `GET /api/candidate/files`, candidate B receives 403 on `GET /api/uploads/<A's fileId>/raw`, candidate A (the file owner) also receives 403 on raw download (admin only), and only admins receive 200.
-
-- **`api/test/security/passwords-and-logs.test.js`**:
-  - **Password hashing**: verifies that user passwords are stored as bcrypt hashes and the plain password is never stored or queryable in the database.
-  - **Log sanitization**: spies on all `console` methods (`log`, `info`, `warn`, `error`, `debug`) during registration, login, OTP verification, file upload, and worker job processing, proving that plain passwords, OTP codes, and distinctive CV text never leak into application logs.
-
-- **`shared/test/security/files.test.js`**:
-  - **DOCX macro safety (AC3)**: verifies that extracting text from a DOCX containing embedded macros (`word/vbaProject.bin`) extracts text safely without executing macros. Also proves that `.docm` files are rejected at upload.
-  - **Markdown download safety (AC4)**: verifies that an uploaded Markdown file containing `<script>` tags is served strictly as an attachment (`Content-Disposition: attachment`, `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'; sandbox`) with non-HTML content type, preventing browser execution.
-  - **Rejected upload cleanup (AC7)**: verifies that uploads rejected for any reason (unsupported format/extension, MIME mismatch, oversize > 10 MB, corrupted file, no readable text, duplicate file hash) leave zero files in the storage folder and zero rows in `uploaded_files`.
-
-- **`worker/test/security/prompt-injection.test.js`**:
-  - **Prompt isolation (AC5)**: verifies that untrusted CV text is strictly encapsulated within `<cv_text>` tags with closing tag sanitization, and the system prompt explicitly commands the model to treat document content as data and ignore embedded instructions.
-  - **Obedience defense (AC5)**: verifies that if an LLM obeys prompt injection instructions and returns invented values without corresponding evidence in the source document, code validation flags them as `evidence_not_found` and mapper logic prevents invented data from persisting.
-
-## Review routing (US-17)
-
-The worker sends every case it cannot decide safely to human review. Undisputed fields are saved at once.
-
-### Review reasons
-
-| Reason                  | Rule       | Where it comes from                                                                |
-| ----------------------- | ---------- | ---------------------------------------------------------------------------------- |
-| `conflict`              | C1, C2, D2 | Rules engine on a later file (US-16)                                               |
-| `item_match_uncertain`  | C3         | Compare step on a later file (US-15)                                               |
-| `intra_source_conflict` | C4         | One file states two values for the same item (storage writer)                      |
-| `validation_failure`    | C5         | Code validation (US-09, US-14), on profile fields and item fields                  |
-| `low_confidence`        | C6         | A value below the review threshold                                                 |
-| `unknown_skill`         | C7         | Skill normalization (US-13). Resolved through the unknown skills endpoints (US-19) |
-
-Every review is built by `createReviewItem` and saved by `saveReviewItems` (`shared/src/review-items.js`), inside the job's storage transaction.
-
-### Threshold
-
-`REVIEW_CONFIDENCE_THRESHOLD` (default `0.5`). The store step reads it once per job, so a new value applies to the next file without a code change.
-
-### First file and later files
-
-- First file: only C4, C5, C6 and C7 apply.
-- A field below the threshold is not stored and stays empty with a pending review. A field that is part of the item's deduplication key (for example `job_title`, `company_name`, `start_date`) is stored, because the item cannot be matched without it, and still gets a pending review.
-- Later file: the rules engine reviews (C1, C2, C6, D2) and the uncertain matches (C3) are written through the same functions (`shared/src/merge/create-merge-reviews.js`). A low-confidence field fill on a matched item is not written and goes to review.
-- While a review is pending, the stored value stays (or the field stays empty) and the admin profile shows the field as pending.
-- A newer file on a field that already has a pending conflict adds one option to the same conflict.
-
-### Conflict options
-
-- Stored value option: the current stored value with the source file, confidence and evidence of its newest source row. All three are `null` when the stored value has no source row (for example a human-reviewed value).
-- New value option: the value from this file with its file, confidence and evidence.
-- C3: `field_name` is `__item__`, `item_id` is the stored item it may match, and the single option value is `{ "item": { ...columns }, "candidateStoredIds": [ids] }`. The new item is not inserted until an admin resolves it.
-
-### Counter
-
-`processing_jobs.pending_review_count` counts the new conflicts and new unknown skills of the job. An option added to an already pending conflict does not count. A job with a count above 0 ends as `completed_with_review`.
-
-### Note on two phone numbers
-
-The extraction schema has one phone field, so one file cannot carry two phone numbers. The intra-source case (C4) is covered by duplicate items in one file with different values.
-
-## Testing and Code Quality
-
-- **Run Tests**:
-
-  ```bash
-  npm test
-  ```
-
-  Runs the test suite across workspaces using Jest.
-
-  To run a single test file and print every test name:
-
-  ```bash
-  npm test -- <path-to-test-file> --verbose
-  ```
-
-  `npm test` runs Jest with `node --experimental-vm-modules`, which the PDF extractor (unpdf) needs inside Jest. Plain `npx jest` works for the other tests but fails the PDF upload tests.
-
-  For the extraction data contract (schema, tests and field-to-column mapping), see [shared/README.md](shared/README.md).
-  For the queue and worker (job flow, retries, steps), see [worker/README.md](worker/README.md)
-
-- **Run Tests Sequentially**:
-
-  ```bash
-  npm test -- --runInBand
-  ```
-
-  Runs all tests sequentially, which is useful for database integration tests.
-
-  **Note:** Database integration tests use the `TEST_DATABASE_URL` environment variable and require an initialized `simera_test` database. Make sure this variable points to the test database, not the development database.
-
-- **Lint Code**:
-
-  ```bash
-  npm run lint
-  ```
-
-  Checks all workspaces for code style and syntax issues with ESLint.
-
-- **Format Code**:
-  ```bash
-  npm run format
-  ```
-  Formats all codebase files using Prettier.
-
-## Project Structure
-
-```text
-├── api/          # Express HTTP API application
-├── worker/       # Background worker process
-├── web/          # Frontend app, added by the frontend developer
-├── shared/       # Shared config loader, models, and utilities
-├── package.json  # Root package with npm workspaces and scripts
-├── .env.example  # Example environment variables template
-└── .nvmrc        # Node.js version specification (22)
-```
-
-## Branch, Commit and PR Rules
-
-- Branches: `main`, `develop` (default), and `feature/<CARD-ID>-<short-name>` created from `develop`.
-- Commit message: `<type>(<CARD-ID>): <imperative summary>`. Types: `feat`, `fix`, `test`, `docs`, `style`, `refactor`, `chore`, `ci`. Example: `feat(US-04): add file size validation`.
-- Pull requests: the title starts with the card ID. One approving review from another member. The reviewer merges into `develop` with "Create a merge commit". `main` gets the demo release only.
+## Contributors
+
+This project was developed by:
+
+| Name | Role |
+|---|---|
+| Mohammed Ferwana | Backend Development |
+| Beesan AbuMfarreh | Backend Development |
+| Deema Hamoudeh | Backend Development |
+| Bashar Shawar | Backend Development |
+| Jeeda Sokkar | Frontend Development |
