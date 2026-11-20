@@ -23,9 +23,9 @@ export default function VerifyOTP() {
   const email = location.state?.email || "";
 
   const {
-  resendMutation,
-  serverErrors: resendErrors,
-} = useResendOtp();
+    resendMutation,
+    serverErrors: resendErrors,
+  } = useResendOtp();
 
   const {
     register,
@@ -38,8 +38,14 @@ export default function VerifyOTP() {
 
   const { verifyMutation, serverErrors } = useVerifyOtp();
 
-  const onSubmit = async (values) => {
-    await verifyMutation.mutateAsync({
+  const verifyError = serverErrors[0];
+  const verifyErrorMessage =
+    typeof verifyError === "string"
+      ? verifyError
+      : verifyError?.message;
+
+  const onSubmit = (values) => {
+    verifyMutation.mutate({
       email,
       code: values.code,
     });
@@ -114,22 +120,6 @@ export default function VerifyOTP() {
           )}
         </Box>
 
-        {/* Server Errors */}
-        {serverErrors.length > 0 && (
-          <Box
-            mb={3}
-            p={2}
-            borderRadius={2}
-            bgcolor="error.lighter"
-          >
-            {serverErrors.map((error, index) => (
-              <Typography key={index} color="error" variant="body2">
-                {typeof error === "string" ? error : error.message}
-              </Typography>
-            ))}
-          </Box>
-        )}
-
         {/* Verification Form */}
         <Box
           component="form"
@@ -149,8 +139,10 @@ export default function VerifyOTP() {
               inputMode: "numeric",
             }}
             {...register("code")}
-            error={!!errors.code}
-            helperText={errors.code?.message}
+            error={!!errors.code || !!verifyErrorMessage}
+            helperText={
+              errors.code?.message || verifyErrorMessage || " "
+            }
           />
 
           <Button
@@ -194,23 +186,34 @@ export default function VerifyOTP() {
             Didn't receive the code?
           </Typography>
 
-     <Button
-  variant="text"
-  sx={{ mt: 0.5, fontWeight: 600, textTransform: "none" }}
-  disabled={resendMutation.isPending || !email}
-  onClick={() => resendMutation.mutate(email)}
->
-  {resendMutation.isPending ? "Sending..." : "Resend Code"}
-</Button>
-{resendErrors.length > 0 && (
-  <Box mt={2}>
-    {resendErrors.map((error, index) => (
-      <Typography key={index} color="error" variant="body2">
-        {typeof error === "string" ? error : error.message}
-      </Typography>
-    ))}
-  </Box>
-)}
+          <Button
+            variant="text"
+            sx={{
+              mt: 0.5,
+              fontWeight: 600,
+              textTransform: "none",
+            }}
+            disabled={resendMutation.isPending || !email}
+            onClick={() => resendMutation.mutate(email)}
+          >
+            {resendMutation.isPending ? "Sending..." : "Resend Code"}
+          </Button>
+
+          {resendErrors.length > 0 && (
+            <Box mt={2}>
+              {resendErrors.map((error, index) => (
+                <Typography
+                  key={index}
+                  color="error"
+                  variant="body2"
+                >
+                  {typeof error === "string"
+                    ? error
+                    : error.message}
+                </Typography>
+              ))}
+            </Box>
+          )}
         </Box>
       </Paper>
     </Box>

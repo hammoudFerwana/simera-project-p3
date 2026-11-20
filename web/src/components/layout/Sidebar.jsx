@@ -1,3 +1,4 @@
+
 import {
   Drawer,
   List,
@@ -9,6 +10,7 @@ import {
   Divider,
   CircularProgress
 } from '@mui/material';
+
 import PsychologyAltRoundedIcon from "@mui/icons-material/PsychologyAltRounded";
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import DashboardRoundedIcon from '@mui/icons-material/DashboardRounded';
@@ -16,9 +18,11 @@ import FolderRoundedIcon from '@mui/icons-material/FolderRounded';
 import PeopleAltRoundedIcon from '@mui/icons-material/PeopleAltRounded';
 import RateReviewRoundedIcon from '@mui/icons-material/RateReviewRounded';
 import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded';
+
 import { NavLink } from 'react-router-dom';
 import { navigationLinks } from '../../constants/navigation';
 import useLogout from '../../hooks/useLogout';
+
 const DRAWER_WIDTH = 250;
 
 const navigationIcons = {
@@ -27,10 +31,13 @@ const navigationIcons = {
   Candidate: PeopleAltRoundedIcon,
   'Review Queue': RateReviewRoundedIcon,
   "Unknown Skills": PsychologyAltRoundedIcon,
-  
 };
 
-export default function Sidebar({ role }) {
+export default function Sidebar({
+  role,
+  mobileOpen,
+  onClose
+}) {
   const links = navigationLinks[role] ?? [];
 
   const { mutate: logout, isPending } = useLogout();
@@ -38,23 +45,9 @@ export default function Sidebar({ role }) {
   const handleLogout = () => {
     logout();
   };
-  return (
-    <Drawer
-      variant="permanent"
-      aria-label="Main navigation"
-      sx={{
-        width: DRAWER_WIDTH,
-        flexShrink: 0,
-        '& .MuiDrawer-paper': {
-          width: DRAWER_WIDTH,
-          boxSizing: 'border-box',
-          backgroundColor: (theme) => theme.palette.sidebar.main,
-          color: (theme) => theme.palette.sidebar.contrastText,
-          border: 'none',
-          padding: 2
-        }
-      }}
-    >
+
+  const drawerContent = (
+    <>
       {/* Brand */}
       <Box sx={{ px: 2, pt: 3, pb: 2.5 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
@@ -114,6 +107,7 @@ export default function Sidebar({ role }) {
               component={NavLink}
               to={path}
               end
+              onClick={onClose}
               sx={{
                 borderRadius: 2,
                 mb: 1,
@@ -200,7 +194,54 @@ export default function Sidebar({ role }) {
           </ListItemButton>
         </List>
       </Box>
-    </Drawer>
+    </>
+  );
+
+  return (
+    <>
+      {/* Desktop Sidebar */}
+      <Drawer
+        variant="permanent"
+        sx={{
+          display: { xs: 'none', md: 'block' },
+          width: DRAWER_WIDTH,
+          flexShrink: 0,
+          '& .MuiDrawer-paper': {
+            width: DRAWER_WIDTH,
+            boxSizing: 'border-box',
+            backgroundColor: (theme) => theme.palette.sidebar.main,
+            color: (theme) => theme.palette.sidebar.contrastText,
+            border: 'none',
+            padding: 2
+          }
+        }}
+      >
+        {drawerContent}
+      </Drawer>
+
+      {/* Mobile Sidebar */}
+      <Drawer
+        variant="temporary"
+        open={mobileOpen}
+        onClose={onClose}
+        ModalProps={{
+          keepMounted: true
+        }}
+        sx={{
+          display: { xs: 'block', md: 'none' },
+          '& .MuiDrawer-paper': {
+            width: DRAWER_WIDTH,
+            boxSizing: 'border-box',
+            backgroundColor: (theme) => theme.palette.sidebar.main,
+            color: (theme) => theme.palette.sidebar.contrastText,
+            border: 'none',
+            padding: 2
+          }
+        }}
+      >
+        {drawerContent}
+      </Drawer>
+    </>
   );
 }
 

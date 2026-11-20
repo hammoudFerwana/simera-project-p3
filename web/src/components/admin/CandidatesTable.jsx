@@ -10,6 +10,7 @@ import {
   Typography,
   Button,
   Chip,
+  Stack,
 } from "@mui/material";
 
 import { useNavigate } from "react-router-dom";
@@ -56,8 +57,19 @@ const CandidatesTable = ({ candidates = [], isLoading }) => {
   }
 
   return (
-    <TableContainer component={Paper}>
-      <Table>
+   <TableContainer
+  component={Paper}
+  sx={{
+    width: "100%",
+    overflowX: "auto",
+  }}
+>
+  <Table
+    sx={{
+      minWidth: { xs: 850, md: 900 },
+      whiteSpace: "nowrap",
+    }}
+  >
         <TableHead>
           <TableRow>
             <TableCell>Candidate Name</TableCell>
@@ -79,10 +91,31 @@ const CandidatesTable = ({ candidates = [], isLoading }) => {
               .filter(Boolean)
               .join(" ");
 
+            const hasPendingReviews =
+              (candidate.pendingReviewCount ?? 0) > 0;
+
             return (
               <TableRow key={candidate.id} hover>
                 <TableCell>
-                  {fullName || "Unnamed Candidate"}
+                  <Stack
+                    direction="row"
+                    alignItems="center"
+                    spacing={1}
+                    flexWrap="wrap"
+                    useFlexGap
+                  >
+                    <Typography variant="body2" fontWeight={600}>
+                      {fullName || "Unnamed Candidate"}
+                    </Typography>
+
+                    {hasPendingReviews && (
+                      <Chip
+                        label="Needs Review"
+                        color="warning"
+                        size="small"
+                      />
+                    )}
+                  </Stack>
                 </TableCell>
 
                 <TableCell>{candidate.email}</TableCell>
@@ -107,28 +140,28 @@ const CandidatesTable = ({ candidates = [], isLoading }) => {
                 </TableCell>
 
                 <TableCell align="right">
-                <Button
-  size="small"
-  variant="contained"
-  onClick={() =>
-    navigate(`/admin/candidates/${candidate.id}`)
-  }
-  sx={{
-    textTransform: "none",
-    fontWeight: 600,
-    fontSize: "0.8rem",
-    borderRadius: 2,
-    px: 2,
-    py: 0.7,
-    boxShadow: "none",
-    "&:hover": {
-      boxShadow: "none",
-      bgcolor: "primary.dark",
-    },
-  }}
->
-  View Profile
-</Button>
+                  <Button
+                    size="small"
+                    variant="contained"
+                    onClick={() =>
+                      navigate(`/admin/candidates/${candidate.id}`)
+                    }
+                    sx={{
+                      textTransform: "none",
+                      fontWeight: 600,
+                      fontSize: "0.8rem",
+                      borderRadius: 2,
+                      px: 2,
+                      py: 0.7,
+                      boxShadow: "none",
+                      "&:hover": {
+                        boxShadow: "none",
+                        bgcolor: "primary.dark",
+                      },
+                    }}
+                  >
+                    View Profile
+                  </Button>
                 </TableCell>
               </TableRow>
             );
