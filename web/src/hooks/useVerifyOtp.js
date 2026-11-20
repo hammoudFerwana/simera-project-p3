@@ -14,6 +14,10 @@ export default function useVerifyOtp() {
       return await axiosInstance.post("/auth/verify-otp", values);
     },
 
+    onMutate: () => {
+      setServerErrors([]);
+    },
+
     onSuccess: () => {
       Swal.fire({
         icon: "success",
@@ -26,7 +30,18 @@ export default function useVerifyOtp() {
     },
 
     onError: (err) => {
-      setServerErrors(err.response?.data?.errors || []);
+      const errors = err.response?.data?.errors;
+
+      if (errors && typeof errors === "object") {
+        setServerErrors(
+          Array.isArray(errors) ? errors : Object.values(errors)
+        );
+        return;
+      }
+
+      setServerErrors([
+        "Something went wrong. Please try again.",
+      ]);
     },
   });
 

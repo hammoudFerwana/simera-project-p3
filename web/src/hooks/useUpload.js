@@ -10,13 +10,18 @@ import {
 } from "../api/uploads";
 
 export const getUploadErrorMessage = (error) => {
+  const reason = error.response?.data?.reason;
+
+  if (reason === "no_readable_text") {
+    return "Insufficient text. The uploaded file contains too little readable text to process.";
+  }
+
   return (
     error.response?.data?.errors?.file ||
     error.response?.data?.message ||
     "Something went wrong. Please try again."
   );
 };
-
 const uploadFunctions = {
   cv: uploadCvApi,
   linkedin: uploadLinkedInApi,
