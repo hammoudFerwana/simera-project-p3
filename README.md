@@ -139,17 +139,22 @@ simera-project-p3/
 
 ## Application Screenshots
 
-### Authentication
-<!-- Add login and registration screenshots here -->
+Live app: [simera-p3-web.vercel.app](https://simera-p3-web.vercel.app)
 
-### Candidate Dashboard
-<!-- Add candidate dashboard and file upload screenshots here -->
+### Landing page
+![Landing page](docs/screenshots/01-landing.png)
 
-### Admin Dashboard
-<!-- Add admin dashboard and candidate list screenshots here -->
+### Multi-source workflow
+![CV, LinkedIn and existing data merged into one profile](docs/screenshots/02-workflow.png)
 
-### Candidate Profile
-<!-- Add candidate profile details and data provenance screenshots here -->
+### Structured candidate profile
+![Structured candidate profile ready for human review](docs/screenshots/03-overview.png)
+
+### Candidate files
+![Candidate uploads a CV and a LinkedIn export](docs/screenshots/04-my-files.png)
+
+### Upload and processing
+![File received and processing started](docs/screenshots/05-upload-processing.png)
 
 ## Setup & Installation
 
