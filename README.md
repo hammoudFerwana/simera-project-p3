@@ -1,7 +1,7 @@
 # TalentVault
 ## Multi-Source Resume Parsing & Data-Enrichment Sync
 
-Simera is a candidate profile management system that automates the collection, extraction, validation, and synchronization of candidate information from multiple sources, including CVs, LinkedIn profiles, and Simera JSON files.
+TalentVault is a candidate profile management system built for Simera. It automates the collection, extraction, validation, and synchronization of candidate information from multiple sources, including CVs, LinkedIn profiles, and Simera JSON files.
 
 By combining automated data extraction, validation rules, conflict resolution, and data provenance, the system maintains structured and traceable candidate profiles while identifying information that requires human review.
 
@@ -20,6 +20,7 @@ By combining automated data extraction, validation rules, conflict resolution, a
 - [API Documentation](#api-documentation)
 - [Testing](#testing)
 - [Results](#results)
+- [Challenges](#challenges)
 - [Future Work](#future-work)
 - [Contributors](#contributors)
 
@@ -39,7 +40,7 @@ This creates several challenges:
   
 ## Solution
 
-Simera addresses these challenges through an automated multi-source processing pipeline that:
+TalentVault addresses these challenges through an automated multi-source processing pipeline that:
 
 1. Collects candidate data from supported sources.
 2. Extracts structured information using an LLM-based process.
@@ -119,7 +120,7 @@ The system processes candidate data through a sequence of automated stages, from
 | **Multi-Source Data Ingestion** | Collect candidate information from CV files, LinkedIn data, and Simera JSON files. |
 | **Automated Data Extraction** | Extract structured candidate information using an LLM-based process. |
 | **Data Validation** | Validate extracted information using predefined rules to ensure data consistency and reliability. |
-| **Conflict Detection & Resolution** | Detect conflicting information across sources and apply predefined resolution rules. |
+| **Conflict Detection & Resolution** | Compare each new file with the stored profile and apply predefined resolution rules. |
 | **Data Provenance** | Track the source, confidence score, and supporting evidence for each candidate profile field. |
 | **Human Review** | Identify uncertain or conflicting information and route it for human verification. |
 | **Candidate Management** | Allow administrators to search, filter, and view candidate profiles and their extracted information. |
@@ -134,13 +135,17 @@ The project is built using the following technologies:
 | Category | Technology |
 |---|---|
 | Backend | Node.js, Express.js |
-| Frontend | React |
+| Frontend | React, Vite, Material UI, TanStack Query |
 | Database | PostgreSQL |
-| Background Processing | Node.js Worker |
-| AI & Data Extraction | Large Language Model (LLM) |
+| Queue & Background Processing | pg-boss, Node.js Worker |
+| File Parsing | unpdf (PDF), mammoth (DOCX) |
+| AI & Data Extraction | Google Gemini (gemini-3.5-flash-lite) through an OpenAI-compatible API |
+| Skill Matching | Fuse.js |
+| Validation | Zod |
 | Testing | Jest |
 | Code Quality | ESLint, Prettier |
 | Package Management | npm Workspaces |
+| Deployment | Vercel (web), Render (API, worker, PostgreSQL) |
 
 ## Project Structure
 
@@ -224,6 +229,12 @@ Run the following command to create the database schema and seed the initial dat
 npm run db:setup
 ```
 
+Then seed the canonical skills list:
+
+```bash
+npm run seed:skills --workspace=shared
+```
+
 ### 5. Run the Application
 
 Start each component in a separate terminal from the project root.
@@ -238,6 +249,12 @@ npm run dev:api
 
 ```bash
 npm run dev:worker
+```
+
+**Start the web app:**
+
+```bash
+npm run dev --workspace=web
 ```
 
 ### 6. Run Tests
@@ -331,11 +348,18 @@ Measured on the golden dataset of 12 synthetic files, run on 19 November 2026.
 
 The one missed case is a low-confidence headline that was saved instead of being sent to review. AI output can vary slightly between runs.
 
+## Challenges
+
+- **Many CV formats:** CVs come in different layouts, section names, and date styles, in PDF and DOCX. Extraction must work without a fixed template.
+- **Limits of the current LLM:** The provider's servers are often busy under heavy load and return errors. The worker retries a temporary failure up to 3 times with an increasing delay.
+- **Limited conflict rules:** The rules cover 15 defined cases. Any case outside them goes to human review, which adds work for the admin.
+
 ## Future Work
 
 - **OCR for scanned CVs:** Read scanned PDF files that have no text layer.
 - **Integration with Simera:** Map stored profiles to Simera's data schema so Agent David can use them directly.
 - **Vetted source rule:** Let a value confirmed by Simera's vetting win over a self-reported value.
+- **LLM improvement:** Test other models and refine the extraction prompt to raise accuracy and reduce provider errors under load.
 
 ## Contributors
 
