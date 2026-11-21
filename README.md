@@ -9,15 +9,18 @@ By combining automated data extraction, validation rules, conflict resolution, a
 
 - [Problem](#problem)
 - [Solution](#solution)
+- [Actors](#actors)
 - [System Architecture](#system-architecture)
+- [Conflict Rules](#conflict-rules)
 - [Processing Workflow](#processing-workflow)
 - [Features](#features)
 - [Technology Stack](#technology-stack)
 - [Project Structure](#project-structure)
-- [Application Screenshots](#application-screenshots)
 - [Setup & Installation](#setup--installation)
 - [API Documentation](#api-documentation)
 - [Testing](#testing)
+- [Results](#results)
+- [Future Work](#future-work)
 - [Contributors](#contributors)
 
   
@@ -46,6 +49,13 @@ Simera addresses these challenges through an automated multi-source processing p
 6. Routes uncertain information for human review.
 
 This results in centralized, structured, and traceable candidate profiles.
+
+## Actors
+
+| Actor | What they do |
+|---|---|
+| **Candidate** | Registers, verifies the email with a one-time code, uploads a CV (PDF or DOCX) and a LinkedIn file, and follows the processing status of each file. |
+| **Admin** | Browses candidate profiles with the source, confidence, and evidence of every value, resolves items in the review queue, links, adds, or rejects unknown skills, views the change history, and uploads a Simera JSON file then sends it to processing. |
 
 ## System Architecture
 
@@ -80,6 +90,16 @@ flowchart TD
     class I validation
     class J,K storage
 ```
+
+## Conflict Rules
+
+Every new file is compared only with the final stored value, never with other files. Plain code applies these rules. The AI model never resolves a conflict.
+
+| Type | When | Example | Result |
+|---|---|---|---|
+| **Automatic (no conflict)** | New information, a format-only difference, a more precise value, a value missing in the new file, or new skills | Stored: Jan 2018. New file: 2018 | Saved automatically. The stored value stays |
+| **Newest file wins** | A current job gets an end date, a value that changes by nature (headline, phone), or a language or skill level | Headline changes to Senior Backend Developer | The newest file's value is saved. The change is logged |
+| **Human review** | An ended job is now current, a past date differs, an uncertain match, two values in the same file, a failed check, low confidence, or an unknown skill | Stored: job ended May 2022. New file: to present | The stored value stays until an admin decides |
 
 ## Processing Workflow
 
@@ -136,20 +156,6 @@ simera-project-p3/
 ├── package.json
 └── README.md
 ```
-
-## Application Screenshots
-
-### Authentication
-<!-- Add login and registration screenshots here -->
-
-### Candidate Dashboard
-<!-- Add candidate dashboard and file upload screenshots here -->
-
-### Admin Dashboard
-<!-- Add admin dashboard and candidate list screenshots here -->
-
-### Candidate Profile
-<!-- Add candidate profile details and data provenance screenshots here -->
 
 ## Setup & Installation
 
@@ -309,6 +315,27 @@ Run lint checks to identify code quality issues:
 ```bash
 npm run lint
 ```
+
+## Results
+
+Measured on the golden dataset of 12 synthetic files, run on 19 November 2026.
+
+| Metric | Result |
+|---|---|
+| Field accuracy | 96.3% (260 / 270) |
+| Date exact-match rate | 100% (63 / 63) |
+| Experience months | 5 / 5 correct |
+| Planted conflict cases | 10 / 11 decided as expected |
+| Expected rejections | 3 / 3 (wrong email, corrupted file, scanned file) |
+| Automatic vs human review | 7 automatic / 5 human review |
+
+The one missed case is a low-confidence headline that was saved instead of being sent to review. AI output can vary slightly between runs.
+
+## Future Work
+
+- **OCR for scanned CVs:** Read scanned PDF files that have no text layer.
+- **Integration with Simera:** Map stored profiles to Simera's data schema so Agent David can use them directly.
+- **Vetted source rule:** Let a value confirmed by Simera's vetting win over a self-reported value.
 
 ## Contributors
 
