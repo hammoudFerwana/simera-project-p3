@@ -13,6 +13,7 @@ By combining automated data extraction, validation rules, conflict resolution, a
 - [System Architecture](#system-architecture)
 - [Technology Stack](#technology-stack)
 - [Actors](#actors)
+- [Demo Video](#demo-video)
 - [Conflict Rules](#conflict-rules)
 - [Processing Workflow](#processing-workflow)
 - [Features](#features)
@@ -115,6 +116,12 @@ The project is built using the following technologies:
 |---|---|
 | **Candidate** | Registers, verifies the email with a one-time code, uploads a CV (PDF or DOCX) and a LinkedIn file, and follows the processing status of each file. |
 | **Admin** | Browses candidate profiles with the source, confidence, and evidence of every value, resolves items in the review queue, links, adds, or rejects unknown skills, views the change history, and uploads a Simera JSON file then sends it to processing. |
+
+## Demo Video
+
+Watch the demo to see TalentVault in action, including candidate registration, file uploads, automated processing, and admin review.
+
+[Watch the Full Demo](https://drive.google.com/drive/folders/1THrCNsjCsfWpXR2baLLXuMmIEYQuXcEg?usp=drive_link)
 
 ## Conflict Rules
 
