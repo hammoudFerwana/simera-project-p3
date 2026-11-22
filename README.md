@@ -9,12 +9,13 @@ By combining automated data extraction, validation rules, conflict resolution, a
 
 - [Problem](#problem)
 - [Solution](#solution)
-- [Actors](#actors)
+
 - [System Architecture](#system-architecture)
+- [Technology Stack](#technology-stack)
+- [Actors](#actors)
 - [Conflict Rules](#conflict-rules)
 - [Processing Workflow](#processing-workflow)
 - [Features](#features)
-- [Technology Stack](#technology-stack)
 - [Project Structure](#project-structure)
 - [Setup & Installation](#setup--installation)
 - [API Documentation](#api-documentation)
@@ -51,12 +52,7 @@ TalentVault addresses these challenges through an automated multi-source process
 
 This results in centralized, structured, and traceable candidate profiles.
 
-## Actors
 
-| Actor | What they do |
-|---|---|
-| **Candidate** | Registers, verifies the email with a one-time code, uploads a CV (PDF or DOCX) and a LinkedIn file, and follows the processing status of each file. |
-| **Admin** | Browses candidate profiles with the source, confidence, and evidence of every value, resolves items in the review queue, links, adds, or rejects unknown skills, views the change history, and uploads a Simera JSON file then sends it to processing. |
 
 ## System Architecture
 
@@ -91,6 +87,34 @@ flowchart TD
     class I validation
     class J,K storage
 ```
+
+
+
+## Technology Stack
+
+The project is built using the following technologies:
+
+| Category | Technology |
+|---|---|
+| Backend | Node.js, Express.js |
+| Frontend | React, Vite, Material UI, TanStack Query |
+| Database | PostgreSQL |
+| Queue & Background Processing | pg-boss, Node.js Worker |
+| File Parsing | unpdf (PDF), mammoth (DOCX) |
+| AI & Data Extraction | Google Gemini (gemini-3.5-flash-lite) through an OpenAI-compatible API |
+| Skill Matching | Fuse.js |
+| Validation | Zod |
+| Testing | Jest |
+| Code Quality | ESLint, Prettier |
+| Package Management | npm Workspaces |
+| Deployment | Vercel (web), Render (API, worker, PostgreSQL) |
+
+## Actors
+
+| Actor | What they do |
+|---|---|
+| **Candidate** | Registers, verifies the email with a one-time code, uploads a CV (PDF or DOCX) and a LinkedIn file, and follows the processing status of each file. |
+| **Admin** | Browses candidate profiles with the source, confidence, and evidence of every value, resolves items in the review queue, links, adds, or rejects unknown skills, views the change history, and uploads a Simera JSON file then sends it to processing. |
 
 ## Conflict Rules
 
@@ -127,25 +151,6 @@ The system processes candidate data through a sequence of automated stages, from
 | **File Processing Tracking** | Allow candidates to monitor the processing status of their uploaded files. |
 | **Email Verification & Authentication** | Provide secure user authentication and email verification. |
 | **Golden Dataset & Accuracy Measurement** | Evaluate extraction accuracy and conflict resolution using a synthetic reference dataset. |
-
-## Technology Stack
-
-The project is built using the following technologies:
-
-| Category | Technology |
-|---|---|
-| Backend | Node.js, Express.js |
-| Frontend | React, Vite, Material UI, TanStack Query |
-| Database | PostgreSQL |
-| Queue & Background Processing | pg-boss, Node.js Worker |
-| File Parsing | unpdf (PDF), mammoth (DOCX) |
-| AI & Data Extraction | Google Gemini (gemini-3.5-flash-lite) through an OpenAI-compatible API |
-| Skill Matching | Fuse.js |
-| Validation | Zod |
-| Testing | Jest |
-| Code Quality | ESLint, Prettier |
-| Package Management | npm Workspaces |
-| Deployment | Vercel (web), Render (API, worker, PostgreSQL) |
 
 ## Project Structure
 
